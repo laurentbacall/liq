@@ -104,6 +104,9 @@ def apply_institutional_grid(ax):
     # Minor Ticks: Every Quarter (Apr, Jul, Oct)
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
     
+    # Force labels to show on THIS specific axis
+    ax.tick_params(labelbottom=True, which='both')
+    
     # Major Grid (Yearly - Heavier)
     ax.grid(True, which='major', axis='x', color='#4F4F4F', linestyle='-', alpha=0.6, linewidth=1.4)
     # Minor Grid (Quarterly - Lighter)
@@ -140,4 +143,6 @@ ax3.set_ylabel("Credit Health (Z)")
 apply_institutional_grid(ax3)
 
 plt.tight_layout()
+# Add a small buffer between charts since they now have labels
+plt.subplots_adjust(hspace=0.3)
 st.pyplot(fig)
