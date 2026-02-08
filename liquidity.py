@@ -116,10 +116,23 @@ with col_stats:
     for col in cols_to_z.keys():
         val = df[f'{col}_Z'].iloc[-1]
         st.write(f"**{col}**")
-        # Visual progress bar logic (clamped between -3 and 3 for display)
-        normalized_val = (max(min(val, 3), -3) + 3) / 6
-        st.progress(normalized_val)
-        st.caption(f"Current Z-Score: {val:.2f}")
+        
+        # 1. Check if the value is NaN before processing
+        if pd.isna(val):
+            st.warning(f"Data for {col} is currently unavailable.")
+            st.progress(0.0)
+            st.caption("Current Z-Score: N/A")
+        else:
+            # 2. Clamp and Normalize (0 to 1 range)
+            # This ensures even a Z-score of +5.0 doesn't exceed 1.0
+            clamped_val = max(min(val, 3), -3)
+            normalized_val = (clamped_val + 3) / 6
+            
+            # 3. Final safety check for Streamlit's 0.0-1.0 requirement
+            normalized_val = float(max(min(normalized_val, 1.0), 0.0))
+            
+            st.progress(normalized_val)
+            st.caption(f"Current Z-Score: {val:.2f}")
 
     st.divider()
     
