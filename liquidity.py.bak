@@ -2,38 +2,35 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from fredapi import Fred
-import io
+import datetime
 
 # --- 1. CONFIGURATION & UI ---
 st.set_page_config(page_title="Macro Liquidity Dashboard", layout="wide")
 st.title("🌊 Institutional Liquidity Monitor")
 
-# --- 2. AUTHENTICATION (Secrets vs User Input) ---
+# --- 2. AUTHENTICATION ---
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
 else:
-    api_key = st.sidebar.text_input("Enter FRED API Key", type="password", help="Get a free key at research.stlouisfed.org")
+    api_key = st.sidebar.text_input("Enter FRED API Key", type="password")
 
 if not api_key:
-    st.info("👋 Welcome! Please enter your FRED API key in the sidebar to begin.")
+    st.info("Please enter your FRED API key to begin.")
     st.stop()
 
 fred = Fred(api_key=api_key)
+
+# Sidebar Controls
+st.sidebar.header("Dashboard Settings")
 lookback_years = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
 
 # --- 3. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_data():
     series_ids = {
-        'WALCL': 'Fed Assets',
-        'WTREGEN': 'TGA',
-        'RRPONTSYD': 'Reverse Repo',
-        'TB3MS': '3M Bill',
-        'CPIAUCSL': 'CPI',
-        'M2SL': 'M2 Supply',
-        'SP500': 'SP500'
+        'WALCL': 'Fed Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'Reverse Repo',
+        'TB3MS': '3M Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2 Supply', 'SP500': 'SP500'
     }
-    
     df_list = []
     for s_id, name in series_ids.items():
         try:
@@ -43,111 +40,94 @@ def get_data():
         except Exception as e:
             st.error(f"Error fetching {s_id}: {e}")
     
-    # Align frequencies: Resample to Daily and Forward Fill
     df = pd.concat(df_list, axis=1).resample('D').ffill()
     return df
 
-with st.spinner('Syncing with Federal Reserve Database...'):
-    df = get_data()
+df = get_data()
 
-# --- 4. HARDENED CALCULATIONS ---
-# Fill drains with 0 and calculate Net Liquidity
+# --- 4. CALCULATIONS ---
 df['Net Liquidity'] = df['Fed Assets'] - (df['TGA'].fillna(0) + df['Reverse Repo'].fillna(0))
-
-# Real 3M Rate calculation
 df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
 df['Real 3M Rate'] = df['3M Bill'] - df['CPI_YoY']
-
-# M2 Real Growth calculation
 df['M2_YoY'] = df['M2 Supply'].pct_change(365) * 100
 df['M2 Real Growth'] = df['M2_YoY'] - df['CPI_YoY']
 
-# Z-Scores with min_periods=30 for resilience
+# Z-Scores with ffill to prevent trailing NaNs
 window = 365 * lookback_years
 cols_to_z = {'Net Liquidity': 1, 'Real 3M Rate': -1, 'M2 Real Growth': 1}
-
-for col, multiplier in cols_to_z.items():
-    roll_mean = df[col].rolling(window=window, min_periods=30).mean()
-    roll_std = df[col].rolling(window=window, min_periods=30).std()
-    # Calculate Z-score
-    df[f'{col}_Z'] = ((df[col] - roll_mean) / roll_std) * multiplier
-    
-    # NEW: Forward fill the Z-score so the latest known value 
-    # persists even if the raw series lags behind the S&P 500 date.
+for col, mult in cols_to_z.items():
+    roll = df[col].rolling(window=window, min_periods=30)
+    df[f'{col}_Z'] = ((df[col] - roll.mean()) / roll.std()) * mult
     df[f'{col}_Z'] = df[f'{col}_Z'].ffill()
 
-# Composite Index
 z_cols = [f'{c}_Z' for c in cols_to_z.keys()]
 df['Aggregate_Index'] = df[z_cols].mean(axis=1)
 
-# --- 5. DASHBOARD DISPLAY ---
-last_idx = df['Aggregate_Index'].iloc[-1]
-status = "EXPANDING" if last_idx > 1 else "CONTRACTING" if last_idx < -1 else "NEUTRAL"
-status_color = "green" if last_idx > 1 else "red" if last_idx < -1 else "gray"
+# --- 5. DYNAMIC TIME SPLICING ---
+st.sidebar.subheader("Timescale Customization")
+min_date = df.index.min().to_pydatetime()
+max_date = df.index.max().to_pydatetime()
+
+# Date range slider for total control
+start_date, end_date = st.sidebar.slider(
+    "Select Analysis Period",
+    min_value=min_date,
+    max_value=max_date,
+    value=(max_date - datetime.timedelta(days=365*3), max_date)
+)
+
+# Create the filtered dataframe for plotting
+plot_df = df.loc[start_date:end_date]
+
+# --- 6. TOP METRICS (Last Valid Value Search) ---
+def get_last_valid(series):
+    return series.dropna().iloc[-1] if not series.dropna().empty else 0.0
 
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("Liquidity Index", f"{last_idx:.2f} Z", delta=status)
-m2.metric("Real 3M Rate", f"{df['Real 3M Rate'].iloc[-1]:.2f}%")
-m3.metric("M2 Real Growth", f"{df['M2 Real Growth'].iloc[-1]:.2f}%")
-m4.metric("Net Fed Liquidity", f"${df['Net Liquidity'].iloc[-1]/1e6:.2f}T")
+idx_val = get_last_valid(df['Aggregate_Index'])
+status = "EXPANDING" if idx_val > 1 else "CONTRACTING" if idx_val < -1 else "NEUTRAL"
+
+m1.metric("Liquidity Index", f"{idx_val:.2f} Z", delta=status)
+m2.metric("Real 3M Rate", f"{get_last_valid(df['Real 3M Rate']):.2f}%")
+m3.metric("M2 Real Growth", f"{get_last_valid(df['M2 Real Growth']):.2f}%")
+m4.metric("Net Fed Liquidity", f"${get_last_valid(df['Net Liquidity'])/1e6:.2f}T")
 
 st.divider()
 
+# --- 7. ADAPTIVE LOG CHARTS ---
 col_chart, col_stats = st.columns([3, 1])
 
 with col_chart:
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
-    plt.subplots_adjust(hspace=0.1)
+    
+    # S&P 500 (Log Scale + Adaptive Limits)
+    ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=2)
+    ax1.set_yscale('log')
+    
+    # Adapt Y-axis limits to the actual range in the selected period (plus a 5% buffer)
+    if not plot_df['SP500'].dropna().empty:
+        y_min = plot_df['SP500'].min() * 0.95
+        y_max = plot_df['SP500'].max() * 1.05
+        ax1.set_ylim(y_min, y_max)
+    
+    ax1.set_title(f"S&P 500 Performance (Log Scale: {start_date.year} - {end_date.year})")
+    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] > 1), color='green', alpha=0.1)
+    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] < -1), color='red', alpha=0.1)
 
-    # Panel 1: S&P 500
-    ax1.plot(df.index, df['SP500'], color='#1f77b4', lw=1.5, label='S&P 500')
-    ax1.fill_between(df.index, df['SP500'].min(), df['SP500'].max(), where=(df['Aggregate_Index'] > 1), color='green', alpha=0.1)
-    ax1.fill_between(df.index, df['SP500'].min(), df['SP500'].max(), where=(df['Aggregate_Index'] < -1), color='red', alpha=0.1)
-    ax1.set_title("Market Response to Liquidity Conditions", fontsize=12)
-    ax1.legend(loc='upper left')
-
-    # Panel 2: Aggregate Index
-    ax2.plot(df.index, df['Aggregate_Index'], color='gray', alpha=0.5)
-    ax2.fill_between(df.index, 0, df['Aggregate_Index'], where=(df['Aggregate_Index'] > 0), color='green', alpha=0.4)
-    ax2.fill_between(df.index, 0, df['Aggregate_Index'], where=(df['Aggregate_Index'] < 0), color='red', alpha=0.4)
-    ax2.axhline(1, ls=':', color='green', alpha=0.6)
-    ax2.axhline(-1, ls=':', color='red', alpha=0.6)
-    ax2.set_ylabel("Composite Z-Score")
+    # Liquidity Index Panel
+    ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] > 0), color='green', alpha=0.4)
+    ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] < 0), color='red', alpha=0.4)
+    ax2.axhline(1, ls=':', color='green')
+    ax2.axhline(-1, ls=':', color='red')
+    ax2.set_ylabel("Z-Score")
     
     st.pyplot(fig)
 
 with col_stats:
-    st.subheader("Component Health")
-    for col in cols_to_z.keys():
-        # Get the absolute last non-null value for each specific component
-        val = df[f'{col}_Z'].dropna().iloc[-1] if not df[f'{col}_Z'].dropna().empty else None
-        
-        st.write(f"**{col}**")
-        if val is not None:
-            clamped_val = max(min(val, 3), -3)
-            normalized_val = (clamped_val + 3) / 6
-            st.progress(float(normalized_val))
-            st.caption(f"Current Z-Score: {val:.2f}")
-        else:
-            st.warning("Data pending...")
-
-    st.divider()
-    
-    # --- REPORT DOWNLOAD ---
-    st.subheader("Export Data")
-    # We export the last 5 years of processed signals
-    report_df = df[['SP500', 'Aggregate_Index'] + z_cols].tail(1825)
-    csv = report_df.to_csv().encode('utf-8')
-    st.download_button(
-        label="📥 Download Liquidity Report (CSV)",
-        data=csv,
-        file_name='liquidity_report.csv',
-        mime='text/csv',
-    )
-
-# --- 6. DATA HEALTH CHECK ---
-with st.expander("🔍 Data Diagnostics (Check for Lags)"):
-    health_start = df.apply(lambda x: x.first_valid_index())
-    health_end = df.apply(lambda x: x.last_valid_index())
-    diagnostics = pd.DataFrame({'Data Starts': health_start, 'Data Ends': health_end})
-    st.table(diagnostics)
+    st.subheader("Correlation Analysis")
+    # Show correlation between SP500 and the Index for the selected period
+    if not plot_df[['SP500', 'Aggregate_Index']].dropna().empty:
+        corr = plot_df['SP500'].corr(plot_df['Aggregate_Index'])
+        st.write(f"**Index Correlation:**")
+        st.code(f"{corr:.2f}")
+        st.caption("Correlation between S&P 500 and Liquidity in the current window.")

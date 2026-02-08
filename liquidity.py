@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 from fredapi import Fred
+from streamlit_echarts import st_echarts
 import datetime
 
-# --- 1. CONFIGURATION & UI ---
-st.set_page_config(page_title="Macro Liquidity Dashboard", layout="wide")
-st.title("🌊 Institutional Liquidity Monitor")
+# --- 1. CONFIGURATION ---
+st.set_page_config(page_title="Macro Liquidity Flow", layout="wide")
+st.title("🌊 Liquidity Flow & Correlation Monitor")
 
-# --- 2. AUTHENTICATION ---
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
 else:
@@ -20,11 +19,7 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-# Sidebar Controls
-st.sidebar.header("Dashboard Settings")
-lookback_years = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
-
-# --- 3. DATA FETCHING ---
+# --- 2. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_data():
     series_ids = {
@@ -33,101 +28,91 @@ def get_data():
     }
     df_list = []
     for s_id, name in series_ids.items():
-        try:
-            s = fred.get_series(s_id)
-            s.name = name
-            df_list.append(s)
-        except Exception as e:
-            st.error(f"Error fetching {s_id}: {e}")
-    
+        s = fred.get_series(s_id)
+        s.name = name
+        df_list.append(s)
     df = pd.concat(df_list, axis=1).resample('D').ffill()
     return df
 
 df = get_data()
 
-# --- 4. CALCULATIONS ---
+# --- 3. FLOW CALCULATIONS (YoY Changes) ---
+# Net Liquidity Flow (YoY % Change)
 df['Net Liquidity'] = df['Fed Assets'] - (df['TGA'].fillna(0) + df['Reverse Repo'].fillna(0))
-df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
-df['Real 3M Rate'] = df['3M Bill'] - df['CPI_YoY']
-df['M2_YoY'] = df['M2 Supply'].pct_change(365) * 100
-df['M2 Real Growth'] = df['M2_YoY'] - df['CPI_YoY']
+df['Liquidity_Flow'] = df['Net Liquidity'].pct_change(365) * 100
 
-# Z-Scores with ffill to prevent trailing NaNs
-window = 365 * lookback_years
-cols_to_z = {'Net Liquidity': 1, 'Real 3M Rate': -1, 'M2 Real Growth': 1}
-for col, mult in cols_to_z.items():
+# Real Rate Momentum (YoY Point Change)
+df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
+df['Real_Rate'] = df['3M Bill'] - df['CPI_YoY']
+df['Rate_Momentum'] = df['Real_Rate'] - df['Real_Rate'].shift(365)
+
+# M2 Real Growth (Already YoY)
+df['M2_Real_Growth'] = (df['M2 Supply'].pct_change(365) * 100) - df['CPI_YoY']
+
+# --- 4. Z-SCORES OF FLOWS ---
+lookback = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
+window = 365 * lookback
+
+# Define Polarity: 
+# Liquidity Flow Up = Bullish (1)
+# Rate Momentum Up = Bearish (-1)
+# M2 Growth Up = Bullish (1)
+flows = {'Liquidity_Flow': 1, 'Rate_Momentum': -1, 'M2_Real_Growth': 1}
+
+for col, mult in flows.items():
     roll = df[col].rolling(window=window, min_periods=30)
     df[f'{col}_Z'] = ((df[col] - roll.mean()) / roll.std()) * mult
     df[f'{col}_Z'] = df[f'{col}_Z'].ffill()
 
-z_cols = [f'{c}_Z' for c in cols_to_z.keys()]
-df['Aggregate_Index'] = df[z_cols].mean(axis=1)
+df['Aggregate_Index'] = df[[f'{c}_Z' for c in flows.keys()]].mean(axis=1)
 
-# --- 5. DYNAMIC TIME SPLICING ---
-st.sidebar.subheader("Timescale Customization")
-min_date = df.index.min().to_pydatetime()
-max_date = df.index.max().to_pydatetime()
+# --- 5. DYNAMIC FILTERS ---
+min_d, max_d = df.index.min().to_pydatetime(), df.index.max().to_pydatetime()
+start_d, end_d = st.sidebar.slider("Analysis Period", min_d, max_d, (max_d - datetime.timedelta(days=1095), max_d))
+plot_df = df.loc[start_d:end_d].dropna(subset=['SP500'])
 
-# Date range slider for total control
-start_date, end_date = st.sidebar.slider(
-    "Select Analysis Period",
-    min_value=min_date,
-    max_value=max_date,
-    value=(max_date - datetime.timedelta(days=365*3), max_date)
-)
+# --- 6. INDIVIDUAL CORRELATIONS ---
+st.sidebar.subheader("Individual Correlations")
+for col in flows.keys():
+    c_val = plot_df['SP500'].corr(plot_df[f'{col}_Z'])
+    st.sidebar.write(f"**{col.replace('_', ' ')}:**")
+    color = "green" if c_val > 0.4 else "red" if c_val < -0.2 else "gray"
+    st.sidebar.markdown(f":{color}[{c_val:.2f} Correlation]")
 
-# Create the filtered dataframe for plotting
-plot_df = df.loc[start_date:end_date]
+# --- 7. INTERACTIVE ECHARTS ---
+dates = plot_df.index.strftime('%Y-%m-%d').tolist()
+sp500_data = plot_df['SP500'].round(2).tolist()
+index_data = plot_df['Aggregate_Index'].round(2).tolist()
 
-# --- 6. TOP METRICS (Last Valid Value Search) ---
-def get_last_valid(series):
-    return series.dropna().iloc[-1] if not series.dropna().empty else 0.0
+options = {
+    "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
+    "legend": {"data": ["S&P 500", "Aggregate Flow Index"]},
+    "grid": [{"left": "5%", "right": "5%", "height": "50%"}, 
+             {"left": "5%", "right": "5%", "top": "65%", "height": "25%"}],
+    "xAxis": [{"type": "category", "data": dates, "gridIndex": 0},
+              {"type": "category", "data": dates, "gridIndex": 1}],
+    "yAxis": [
+        {"type": "log", "name": "S&P 500", "gridIndex": 0, "min": "dataMin", "max": "dataMax"},
+        {"type": "value", "name": "Z-Score", "gridIndex": 1}
+    ],
+    "series": [
+        {"name": "S&P 500", "type": "line", "data": sp500_data, "xAxisIndex": 0, "yAxisIndex": 0, "symbol": "none"},
+        {"name": "Aggregate Flow Index", "type": "line", "data": index_data, "xAxisIndex": 1, "yAxisIndex": 1, 
+         "symbol": "none", "areaStyle": {"opacity": 0.2}}
+    ]
+}
 
-m1, m2, m3, m4 = st.columns(4)
-idx_val = get_last_valid(df['Aggregate_Index'])
-status = "EXPANDING" if idx_val > 1 else "CONTRACTING" if idx_val < -1 else "NEUTRAL"
+st_echarts(options=options, height="600px")
 
-m1.metric("Liquidity Index", f"{idx_val:.2f} Z", delta=status)
-m2.metric("Real 3M Rate", f"{get_last_valid(df['Real 3M Rate']):.2f}%")
-m3.metric("M2 Real Growth", f"{get_last_valid(df['M2 Real Growth']):.2f}%")
-m4.metric("Net Fed Liquidity", f"${get_last_valid(df['Net Liquidity'])/1e6:.2f}T")
-
-st.divider()
-
-# --- 7. ADAPTIVE LOG CHARTS ---
-col_chart, col_stats = st.columns([3, 1])
-
-with col_chart:
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
-    
-    # S&P 500 (Log Scale + Adaptive Limits)
-    ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=2)
-    ax1.set_yscale('log')
-    
-    # Adapt Y-axis limits to the actual range in the selected period (plus a 5% buffer)
-    if not plot_df['SP500'].dropna().empty:
-        y_min = plot_df['SP500'].min() * 0.95
-        y_max = plot_df['SP500'].max() * 1.05
-        ax1.set_ylim(y_min, y_max)
-    
-    ax1.set_title(f"S&P 500 Performance (Log Scale: {start_date.year} - {end_date.year})")
-    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] > 1), color='green', alpha=0.1)
-    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] < -1), color='red', alpha=0.1)
-
-    # Liquidity Index Panel
-    ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] > 0), color='green', alpha=0.4)
-    ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] < 0), color='red', alpha=0.4)
-    ax2.axhline(1, ls=':', color='green')
-    ax2.axhline(-1, ls=':', color='red')
-    ax2.set_ylabel("Z-Score")
-    
-    st.pyplot(fig)
-
-with col_stats:
-    st.subheader("Correlation Analysis")
-    # Show correlation between SP500 and the Index for the selected period
-    if not plot_df[['SP500', 'Aggregate_Index']].dropna().empty:
-        corr = plot_df['SP500'].corr(plot_df['Aggregate_Index'])
-        st.write(f"**Index Correlation:**")
-        st.code(f"{corr:.2f}")
-        st.caption("Correlation between S&P 500 and Liquidity in the current window.")
+# --- 8. COMPONENT BREAKDOWN ---
+st.subheader("Component Flow Analysis")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.metric("Liquidity Flow (YoY)", f"{df['Liquidity_Flow'].dropna().iloc[-1]:.1f}%")
+    st.caption("Rate of change in Fed Net Liquidity")
+with c2:
+    st.metric("Rate Momentum (YoY)", f"{df['Rate_Momentum'].dropna().iloc[-1]:.2f}%")
+    st.caption("YoY Basis point change in Real 3M Rate")
+with c3:
+    st.metric("M2 Real Growth", f"{df['M2_Real_Growth'].dropna().iloc[-1]:.1f}%")
+    st.caption("YoY Real M2 expansion")
