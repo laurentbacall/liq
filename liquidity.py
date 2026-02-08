@@ -69,7 +69,12 @@ cols_to_z = {'Net Liquidity': 1, 'Real 3M Rate': -1, 'M2 Real Growth': 1}
 for col, multiplier in cols_to_z.items():
     roll_mean = df[col].rolling(window=window, min_periods=30).mean()
     roll_std = df[col].rolling(window=window, min_periods=30).std()
+    # Calculate Z-score
     df[f'{col}_Z'] = ((df[col] - roll_mean) / roll_std) * multiplier
+    
+    # NEW: Forward fill the Z-score so the latest known value 
+    # persists even if the raw series lags behind the S&P 500 date.
+    df[f'{col}_Z'] = df[f'{col}_Z'].ffill()
 
 # Composite Index
 z_cols = [f'{c}_Z' for c in cols_to_z.keys()]
@@ -114,25 +119,17 @@ with col_chart:
 with col_stats:
     st.subheader("Component Health")
     for col in cols_to_z.keys():
-        val = df[f'{col}_Z'].iloc[-1]
-        st.write(f"**{col}**")
+        # Get the absolute last non-null value for each specific component
+        val = df[f'{col}_Z'].dropna().iloc[-1] if not df[f'{col}_Z'].dropna().empty else None
         
-        # 1. Check if the value is NaN before processing
-        if pd.isna(val):
-            st.warning(f"Data for {col} is currently unavailable.")
-            st.progress(0.0)
-            st.caption("Current Z-Score: N/A")
-        else:
-            # 2. Clamp and Normalize (0 to 1 range)
-            # This ensures even a Z-score of +5.0 doesn't exceed 1.0
+        st.write(f"**{col}**")
+        if val is not None:
             clamped_val = max(min(val, 3), -3)
             normalized_val = (clamped_val + 3) / 6
-            
-            # 3. Final safety check for Streamlit's 0.0-1.0 requirement
-            normalized_val = float(max(min(normalized_val, 1.0), 0.0))
-            
-            st.progress(normalized_val)
+            st.progress(float(normalized_val))
             st.caption(f"Current Z-Score: {val:.2f}")
+        else:
+            st.warning("Data pending...")
 
     st.divider()
     
