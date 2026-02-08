@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from fredapi import Fred
-import io
+import datetime
 
 # --- 1. CONFIGURATION & UI ---
 st.set_page_config(page_title="Macro Liquidity Dashboard", layout="wide")
@@ -23,7 +23,6 @@ fred = Fred(api_key=api_key)
 # Sidebar Controls
 st.sidebar.header("Dashboard Settings")
 lookback_years = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
-timescale = st.sidebar.radio("View Timescale", ["1Y", "3Y", "5Y", "Max"], index=2)
 
 # --- 3. DATA FETCHING ---
 @st.cache_data(ttl=3600)
@@ -53,69 +52,82 @@ df['Real 3M Rate'] = df['3M Bill'] - df['CPI_YoY']
 df['M2_YoY'] = df['M2 Supply'].pct_change(365) * 100
 df['M2 Real Growth'] = df['M2_YoY'] - df['CPI_YoY']
 
+# Z-Scores with ffill to prevent trailing NaNs
 window = 365 * lookback_years
 cols_to_z = {'Net Liquidity': 1, 'Real 3M Rate': -1, 'M2 Real Growth': 1}
-
-for col, multiplier in cols_to_z.items():
-    roll_mean = df[col].rolling(window=window, min_periods=30).mean()
-    roll_std = df[col].rolling(window=window, min_periods=30).std()
-    df[f'{col}_Z'] = ((df[col] - roll_mean) / roll_std) * multiplier
-    df[f'{col}_Z'] = df[f'{col}_Z'].ffill() # Carry forward last known regime
+for col, mult in cols_to_z.items():
+    roll = df[col].rolling(window=window, min_periods=30)
+    df[f'{col}_Z'] = ((df[col] - roll.mean()) / roll.std()) * mult
+    df[f'{col}_Z'] = df[f'{col}_Z'].ffill()
 
 z_cols = [f'{c}_Z' for c in cols_to_z.keys()]
 df['Aggregate_Index'] = df[z_cols].mean(axis=1)
 
-# Filter by selected timescale
-end_date = df.index.max()
-if timescale == "1Y": start_date = end_date - pd.Timedelta(days=365)
-elif timescale == "3Y": start_date = end_date - pd.Timedelta(days=365*3)
-elif timescale == "5Y": start_date = end_date - pd.Timedelta(days=365*5)
-else: start_date = df.index.min()
+# --- 5. DYNAMIC TIME SPLICING ---
+st.sidebar.subheader("Timescale Customization")
+min_date = df.index.min().to_pydatetime()
+max_date = df.index.max().to_pydatetime()
+
+# Date range slider for total control
+start_date, end_date = st.sidebar.slider(
+    "Select Analysis Period",
+    min_value=min_date,
+    max_value=max_date,
+    value=(max_date - datetime.timedelta(days=365*3), max_date)
+)
+
+# Create the filtered dataframe for plotting
 plot_df = df.loc[start_date:end_date]
 
-# --- 5. TOP METRICS (Robust NaN handling) ---
-def get_last(series):
+# --- 6. TOP METRICS (Last Valid Value Search) ---
+def get_last_valid(series):
     return series.dropna().iloc[-1] if not series.dropna().empty else 0.0
 
 m1, m2, m3, m4 = st.columns(4)
-idx_val = get_last(df['Aggregate_Index'])
+idx_val = get_last_valid(df['Aggregate_Index'])
 status = "EXPANDING" if idx_val > 1 else "CONTRACTING" if idx_val < -1 else "NEUTRAL"
 
 m1.metric("Liquidity Index", f"{idx_val:.2f} Z", delta=status)
-m2.metric("Real 3M Rate", f"{get_last(df['Real 3M Rate']):.2f}%")
-m3.metric("M2 Real Growth", f"{get_last(df['M2 Real Growth']):.2f}%")
-m4.metric("Net Fed Liquidity", f"${get_last(df['Net Liquidity'])/1e6:.2f}T")
+m2.metric("Real 3M Rate", f"{get_last_valid(df['Real 3M Rate']):.2f}%")
+m3.metric("M2 Real Growth", f"{get_last_valid(df['M2 Real Growth']):.2f}%")
+m4.metric("Net Fed Liquidity", f"${get_last_valid(df['Net Liquidity'])/1e6:.2f}T")
 
 st.divider()
 
-# --- 6. CHARTS ---
+# --- 7. ADAPTIVE LOG CHARTS ---
 col_chart, col_stats = st.columns([3, 1])
 
 with col_chart:
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
     
-    # Panel 1: S&P 500 (LOG SCALE)
-    ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=1.5)
-    ax1.set_yscale('log') # This enables the Logarithmic scale
-    ax1.set_title(f"S&P 500 Performance ({timescale} - Log Scale)")
-    ax1.fill_between(plot_df.index, plot_df['SP500'].min(), plot_df['SP500'].max(), 
-                     where=(plot_df['Aggregate_Index'] > 1), color='green', alpha=0.1)
-    ax1.fill_between(plot_df.index, plot_df['SP500'].min(), plot_df['SP500'].max(), 
-                     where=(plot_df['Aggregate_Index'] < -1), color='red', alpha=0.1)
+    # S&P 500 (Log Scale + Adaptive Limits)
+    ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=2)
+    ax1.set_yscale('log')
+    
+    # Adapt Y-axis limits to the actual range in the selected period (plus a 5% buffer)
+    if not plot_df['SP500'].dropna().empty:
+        y_min = plot_df['SP500'].min() * 0.95
+        y_max = plot_df['SP500'].max() * 1.05
+        ax1.set_ylim(y_min, y_max)
+    
+    ax1.set_title(f"S&P 500 Performance (Log Scale: {start_date.year} - {end_date.year})")
+    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] > 1), color='green', alpha=0.1)
+    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] < -1), color='red', alpha=0.1)
 
-    # Panel 2: Composite Index
-    ax2.plot(plot_df.index, plot_df['Aggregate_Index'], color='gray', alpha=0.5)
+    # Liquidity Index Panel
     ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] > 0), color='green', alpha=0.4)
     ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] < 0), color='red', alpha=0.4)
     ax2.axhline(1, ls=':', color='green')
     ax2.axhline(-1, ls=':', color='red')
+    ax2.set_ylabel("Z-Score")
     
     st.pyplot(fig)
 
 with col_stats:
-    st.subheader("Component Health")
-    for col in cols_to_z.keys():
-        val = get_last(df[f'{col}_Z'])
-        st.write(f"**{col}**")
-        st.progress((max(min(val, 3), -3) + 3) / 6)
-        st.caption(f"Current: {val:.2f} Z")
+    st.subheader("Correlation Analysis")
+    # Show correlation between SP500 and the Index for the selected period
+    if not plot_df[['SP500', 'Aggregate_Index']].dropna().empty:
+        corr = plot_df['SP500'].corr(plot_df['Aggregate_Index'])
+        st.write(f"**Index Correlation:**")
+        st.code(f"{corr:.2f}")
+        st.caption("Correlation between S&P 500 and Liquidity in the current window.")
