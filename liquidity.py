@@ -21,16 +21,16 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-# --- 2. DATA FETCHING (Hybrid Logic) ---
+# --- 2. DATA FETCHING (Robust Hybrid) ---
 @st.cache_data(ttl=3600)
 def get_data():
-    # A. Fetch FRED Macro + S&P 500 (Starts ~2016)
+    # A. Fetch FRED Macro + S&P 500 Daily
     series_ids = {
         'WALCL': 'Fed Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'Reverse Repo',
         'TB3MS': '3M Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2 Supply', 
         'BAMLH0A0HYM2': 'HY_Spread',
-        'SP500': 'SP500_FRED',    # Official Daily (2016+)
-        'WILL5000PR': 'WILL_Proxy' # Ultimate Fallback
+        'SP500': 'SP500_FRED',    # Daily from ~2011
+        'WILL5000PR': 'WILL_Proxy' 
     }
     df_list = []
     for s_id, name in series_ids.items():
@@ -40,63 +40,62 @@ def get_data():
             df_list.append(s)
         except Exception: continue
     
-    # B. Fetch Yahoo Monthly (History from 1970)
+    # B. Fetch Yahoo Monthly for long history
     sp_history = pd.Series(dtype=float)
     try:
         yf_df = yf.download("^GSPC", start="1970-01-01", interval="1mo", progress=False)
         if not yf_df.empty:
-            # Handle MultiIndex logic for new yfinance versions
-            if isinstance(yf_df.columns, pd.MultiIndex):
-                sp_history = yf_df['Close']['^GSPC']
-            else:
+            # Handle possible MultiIndex or simple Series
+            if 'Close' in yf_df.columns:
                 sp_history = yf_df['Close']
+                if isinstance(sp_history, pd.DataFrame):
+                    sp_history = sp_history.iloc[:, 0]
     except Exception:
-        st.sidebar.warning("Yahoo Monthly failed. Using Wilshire Proxy for history.")
+        pass
 
     df = pd.concat(df_list, axis=1).resample('D').ffill()
 
-    # C. HYBRID MERGE LOGIC
-    # 1. Prepare the Yahoo Monthly data (resampled to daily)
+    # C. MERGE: Hybrid S&P 500
+    # 1. Interpolate monthly Yahoo to daily to fill pre-2011 gaps
     yf_daily = sp_history.resample('D').interpolate(method='linear')
     
-    # 2. Use combine_first: Prefer FRED Daily, fill gaps with Yahoo Monthly
-    # If FRED is NaN (pre-2016), it takes Yahoo's value.
+    # 2. Prefer FRED Daily (High resolution), fallback to Yahoo (Interpolated)
+    # This automatically "stitches" the two series together
     df['SP500'] = df['SP500_FRED'].combine_first(yf_daily)
     
-    # 3. Ultimate Fallback to Wilshire if both failed
-    if df['SP500'].dropna().empty:
+    # 3. Last resort fallback
+    if 'SP500' not in df.columns or df['SP500'].dropna().empty:
         df['SP500'] = df['WILL_Proxy']
         
     return df
 
 df = get_data()
 
-# --- 3. CALCULATIONS ---
-df['Net_Liquidity'] = df['Fed Assets'] - (df['TGA'].fillna(0) + df['Reverse Repo'].fillna(0))
-df['Liquidity_Flow'] = df['Net_Liquidity'].ffill().pct_change(365) * 100
-df['CPI_YoY'] = df['CPI'].ffill().pct_change(365) * 100
-df['M2_Real_Growth'] = (df['M2 Supply'].ffill().pct_change(365) * 100) - df['CPI_YoY']
-df['Real_Rate'] = df['3M Bill'] - df['CPI_YoY']
+# --- 3. CALCULATIONS (Modern Pandas Syntax) ---
+# Ensure no NAs before pct_change
+df_calc = df.ffill()
+df['Net_Liquidity'] = df_calc['Fed Assets'] - (df_calc['TGA'].fillna(0) + df_calc['Reverse Repo'].fillna(0))
+df['Liquidity_Flow'] = df['Net_Liquidity'].pct_change(365) * 100
+df['CPI_YoY'] = df_calc['CPI'].pct_change(365) * 100
+df['M2_Real_Growth'] = (df_calc['M2 Supply'].pct_change(365) * 100) - df['CPI_YoY']
+df['Real_Rate'] = df_calc['3M Bill'] - df['CPI_YoY']
 df['Rate_Momentum'] = df['Real_Rate'] - df['Real_Rate'].shift(365)
 
 lookback = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
 window = 365 * lookback
 
-# Z-Scores for Liquidity Pillars
+# Z-Scores
 liq_pillars = {'Liquidity_Flow': 1, 'M2_Real_Growth': 1, 'Rate_Momentum': -1}
 for col, mult in liq_pillars.items():
     roll = df[col].rolling(window=window, min_periods=30)
     df[f'{col}_Z'] = ((df[col] - roll.mean()) / roll.std()) * mult
-    df[f'{col}_Z'] = df[f'{col}_Z'].ffill()
 
 df['Aggregate_Liquidity'] = df[[f'{c}_Z' for c in liq_pillars.keys()]].mean(axis=1)
 
-# Z-Score for Credit Health (Separate)
 roll_hy = df['HY_Spread'].rolling(window=window, min_periods=30)
 df['Credit_Z'] = ((df['HY_Spread'] - roll_hy.mean()) / roll_hy.std()) * -1
-df['Credit_Z'] = df['Credit_Z'].ffill()
 
-# --- 4. MONTHLY GRANULARITY SLIDER ---
+# --- 4. MONTHLY SELECTOR ---
 monthly_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='MS')
 start_month, end_month = st.sidebar.select_slider(
     "Select Analysis Period",
@@ -107,27 +106,32 @@ start_month, end_month = st.sidebar.select_slider(
 
 plot_df = df.loc[start_month:end_month].copy()
 
-# --- 5. THE TRIPLE PANEL CHART (High Density Grid) ---
+# --- 5. THE CHARTS (With Universal Locator) ---
 fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True, 
                                     gridspec_kw={'height_ratios': [2, 1, 1]})
 
 def apply_dense_grid(ax):
-    # This creates the "40 lines per 10 years" look (Quarterly)
-    ax.xaxis.set_major_locator(mdates.QuarterlyLocator())
+    # MonthLocator(interval=3) is the universal version of Quarterly
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    ax.grid(True, which='major', axis='x', color='gray', linestyle='--', alpha=0.5)
+    
+    ax.grid(True, which='major', axis='x', color='gray', linestyle='--', alpha=0.4)
     ax.grid(True, which='major', axis='y', color='gray', linestyle=':', alpha=0.2)
+    
+    # Clean up labels so we only see the Year once per 4 ticks
+    for label in ax.xaxis.get_ticklabels()[::4]:
+        label.set_visible(True)
 
-# Panel 1: S&P 500 (Hybrid)
+# Panel 1: S&P 500
 ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=2.5)
 ax1.set_yscale('log')
 if not plot_df['SP500'].dropna().empty:
     ymin, ymax = plot_df['SP500'].min() * 0.95, plot_df['SP500'].max() * 1.05
     ax1.set_ylim(ymin, ymax)
-ax1.set_title("Market Performance (Hybrid FRED/Yahoo Log Scale)", loc='left', fontweight='bold')
+ax1.set_title("Market Performance (Hybrid Log Scale)", loc='left', fontweight='bold')
 apply_dense_grid(ax1)
 
-# Panel 2: Aggregate Liquidity
+# Panel 2: Liquidity Flow
 ax2.plot(plot_df.index, plot_df['Aggregate_Liquidity'], color='purple', lw=1.5)
 ax2.axhline(0, color='black', lw=1.2)
 ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Liquidity'], where=(plot_df['Aggregate_Liquidity']>=0), color='green', alpha=0.3)
