@@ -1,35 +1,36 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import yfinance as yf
 from fredapi import Fred
 import datetime
 
-# --- 1. CONFIGURATION & UI ---
-st.set_page_config(page_title="Macro Liquidity Dashboard", layout="wide")
-st.title("🌊 Institutional Liquidity Monitor")
+# --- 1. CONFIGURATION & SECRETS ---
+st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
+st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
-# --- 2. AUTHENTICATION ---
+# Handle API Key from Streamlit Secrets or Sidebar fallback
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
 else:
     api_key = st.sidebar.text_input("Enter FRED API Key", type="password")
 
 if not api_key:
-    st.info("Please enter your FRED API key to begin.")
+    st.info("Please enter your FRED API key in the sidebar or add it to Streamlit Secrets to begin.")
     st.stop()
 
 fred = Fred(api_key=api_key)
 
-# Sidebar Controls
-st.sidebar.header("Dashboard Settings")
-lookback_years = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
-
-# --- 3. DATA FETCHING ---
+# --- 2. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_data():
     series_ids = {
         'WALCL': 'Fed Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'Reverse Repo',
-        'TB3MS': '3M Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2 Supply', 'SP500': 'SP500'
+        'TB3MS': '3M Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2 Supply', 
+        'BAMLH0A0HYM2': 'HY_Spread',
+        'SP500': 'SP500_FRED',
+        'WILL5000PR': 'WILL_Proxy' 
     }
     df_list = []
     for s_id, name in series_ids.items():
@@ -37,97 +38,114 @@ def get_data():
             s = fred.get_series(s_id)
             s.name = name
             df_list.append(s)
-        except Exception as e:
-            st.error(f"Error fetching {s_id}: {e}")
+        except Exception: continue
     
+    # Yahoo Monthly Fetch
+    sp_history = pd.Series(dtype=float)
+    try:
+        yf_df = yf.download("^GSPC", start="1970-01-01", interval="1mo", progress=False)
+        if not yf_df.empty:
+            if 'Close' in yf_df.columns:
+                # Ensure we handle the yfinance DataFrame vs Series structure
+                sp_history = yf_df['Close']
+                if isinstance(sp_history, pd.DataFrame):
+                    sp_history = sp_history.iloc[:, 0]
+    except Exception:
+        pass
+
     df = pd.concat(df_list, axis=1).resample('D').ffill()
+
+    # CRITICAL FIX: Only resample if we have a DatetimeIndex
+    if not sp_history.empty and isinstance(sp_history.index, pd.DatetimeIndex):
+        yf_daily = sp_history.resample('D').interpolate(method='linear')
+        df['SP500'] = df['SP500_FRED'].combine_first(yf_daily)
+    else:
+        # If Yahoo fails, rely on FRED and then Proxy
+        df['SP500'] = df['SP500_FRED']
+    
+    # Ultimate fallback to Wilshire 5000
+    if 'SP500' not in df.columns or df['SP500'].dropna().empty:
+        df['SP500'] = df['WILL_Proxy']
+        
     return df
 
 df = get_data()
 
-# --- 4. CALCULATIONS ---
-df['Net Liquidity'] = df['Fed Assets'] - (df['TGA'].fillna(0) + df['Reverse Repo'].fillna(0))
-df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
-df['Real 3M Rate'] = df['3M Bill'] - df['CPI_YoY']
-df['M2_YoY'] = df['M2 Supply'].pct_change(365) * 100
-df['M2 Real Growth'] = df['M2_YoY'] - df['CPI_YoY']
+# --- 3. CALCULATIONS ---
+df_calc = df.ffill()
+df['Net_Liquidity'] = df_calc['Fed Assets'] - (df_calc['TGA'].fillna(0) + df_calc['Reverse Repo'].fillna(0))
+df['Liquidity_Flow'] = df['Net_Liquidity'].pct_change(365) * 100
+df['CPI_YoY'] = df_calc['CPI'].pct_change(365) * 100
+df['M2_Real_Growth'] = (df_calc['M2 Supply'].pct_change(365) * 100) - df['CPI_YoY']
+df['Real_Rate'] = df_calc['3M Bill'] - df['CPI_YoY']
+df['Rate_Momentum'] = df['Real_Rate'] - df['Real_Rate'].shift(365)
 
-# Z-Scores with ffill to prevent trailing NaNs
-window = 365 * lookback_years
-cols_to_z = {'Net Liquidity': 1, 'Real 3M Rate': -1, 'M2 Real Growth': 1}
-for col, mult in cols_to_z.items():
+lookback = st.sidebar.slider("Z-Score Lookback (Years)", 1, 10, 3)
+window = 365 * lookback
+
+# Z-Scores
+liq_pillars = {'Liquidity_Flow': 1, 'M2_Real_Growth': 1, 'Rate_Momentum': -1}
+for col, mult in liq_pillars.items():
     roll = df[col].rolling(window=window, min_periods=30)
     df[f'{col}_Z'] = ((df[col] - roll.mean()) / roll.std()) * mult
-    df[f'{col}_Z'] = df[f'{col}_Z'].ffill()
 
-z_cols = [f'{c}_Z' for c in cols_to_z.keys()]
-df['Aggregate_Index'] = df[z_cols].mean(axis=1)
+df['Aggregate_Liquidity'] = df[[f'{c}_Z' for c in liq_pillars.keys()]].mean(axis=1)
+roll_hy = df['HY_Spread'].rolling(window=window, min_periods=30)
+df['Credit_Z'] = ((df['HY_Spread'] - roll_hy.mean()) / roll_hy.std()) * -1
 
-# --- 5. DYNAMIC TIME SPLICING ---
-st.sidebar.subheader("Timescale Customization")
-min_date = df.index.min().to_pydatetime()
-max_date = df.index.max().to_pydatetime()
-
-# Date range slider for total control
-start_date, end_date = st.sidebar.slider(
+# --- 4. MONTHLY SELECTOR ---
+monthly_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='MS')
+start_month, end_month = st.sidebar.select_slider(
     "Select Analysis Period",
-    min_value=min_date,
-    max_value=max_date,
-    value=(max_date - datetime.timedelta(days=365*3), max_date)
+    options=monthly_range,
+    value=(monthly_range[-120], monthly_range[-1]),
+    format_func=lambda x: x.strftime('%Y')
 )
+plot_df = df.loc[start_month:end_month].copy()
 
-# Create the filtered dataframe for plotting
-plot_df = df.loc[start_date:end_date]
+# --- 5. THE CHARTS (Multi-Axis Labels & Dense Grid) ---
+fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True, 
+                                    gridspec_kw={'height_ratios': [2, 1, 1]})
 
-# --- 6. TOP METRICS (Last Valid Value Search) ---
-def get_last_valid(series):
-    return series.dropna().iloc[-1] if not series.dropna().empty else 0.0
-
-m1, m2, m3, m4 = st.columns(4)
-idx_val = get_last_valid(df['Aggregate_Index'])
-status = "EXPANDING" if idx_val > 1 else "CONTRACTING" if idx_val < -1 else "NEUTRAL"
-
-m1.metric("Liquidity Index", f"{idx_val:.2f} Z", delta=status)
-m2.metric("Real 3M Rate", f"{get_last_valid(df['Real 3M Rate']):.2f}%")
-m3.metric("M2 Real Growth", f"{get_last_valid(df['M2 Real Growth']):.2f}%")
-m4.metric("Net Fed Liquidity", f"${get_last_valid(df['Net Liquidity'])/1e6:.2f}T")
-
-st.divider()
-
-# --- 7. ADAPTIVE LOG CHARTS ---
-col_chart, col_stats = st.columns([3, 1])
-
-with col_chart:
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
+def apply_institutional_grid(ax):
+    # Setup Locators
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[4, 7, 10]))
     
-    # S&P 500 (Log Scale + Adaptive Limits)
-    ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=2)
-    ax1.set_yscale('log')
+    # FORCE LABELS ON ALL AXES
+    ax.tick_params(labelbottom=True, which='major', labelsize=10)
     
-    # Adapt Y-axis limits to the actual range in the selected period (plus a 5% buffer)
-    if not plot_df['SP500'].dropna().empty:
-        y_min = plot_df['SP500'].min() * 0.95
-        y_max = plot_df['SP500'].max() * 1.05
-        ax1.set_ylim(y_min, y_max)
-    
-    ax1.set_title(f"S&P 500 Performance (Log Scale: {start_date.year} - {end_date.year})")
-    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] > 1), color='green', alpha=0.1)
-    ax1.fill_between(plot_df.index, y_min, y_max, where=(plot_df['Aggregate_Index'] < -1), color='red', alpha=0.1)
+    # Grid Styling
+    ax.grid(True, which='major', axis='x', color='#4F4F4F', linestyle='-', alpha=0.6, linewidth=1.2)
+    ax.grid(True, which='minor', axis='x', color='gray', linestyle='--', alpha=0.3, linewidth=0.8)
+    ax.grid(True, which='major', axis='y', color='gray', linestyle=':', alpha=0.2)
 
-    # Liquidity Index Panel
-    ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] > 0), color='green', alpha=0.4)
-    ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Index'], where=(plot_df['Aggregate_Index'] < 0), color='red', alpha=0.4)
-    ax2.axhline(1, ls=':', color='green')
-    ax2.axhline(-1, ls=':', color='red')
-    ax2.set_ylabel("Z-Score")
-    
-    st.pyplot(fig)
+# Panel 1: S&P 500
+ax1.plot(plot_df.index, plot_df['SP500'], color='#1f77b4', lw=2.5)
+ax1.set_yscale('log')
+if not plot_df['SP500'].dropna().empty:
+    ymin, ymax = plot_df['SP500'].min() * 0.95, plot_df['SP500'].max() * 1.05
+    ax1.set_ylim(ymin, ymax)
+ax1.set_title("Market Performance (Log Scale)", loc='left', fontweight='bold', fontsize=12)
+apply_institutional_grid(ax1)
 
-with col_stats:
-    st.subheader("Correlation Analysis")
-    # Show correlation between SP500 and the Index for the selected period
-    if not plot_df[['SP500', 'Aggregate_Index']].dropna().empty:
-        corr = plot_df['SP500'].corr(plot_df['Aggregate_Index'])
-        st.write(f"**Index Correlation:**")
-        st.code(f"{corr:.2f}")
-        st.caption("Correlation between S&P 500 and Liquidity in the current window.")
+# Panel 2: Liquidity Flow
+ax2.plot(plot_df.index, plot_df['Aggregate_Liquidity'], color='purple', lw=1.5)
+ax2.axhline(0, color='black', lw=1.2)
+ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Liquidity'], where=(plot_df['Aggregate_Liquidity']>=0), color='green', alpha=0.3)
+ax2.fill_between(plot_df.index, 0, plot_df['Aggregate_Liquidity'], where=(plot_df['Aggregate_Liquidity']<0), color='red', alpha=0.3)
+ax2.set_ylabel("Liquidity Flow Index")
+apply_institutional_grid(ax2)
+
+# Panel 3: Credit Health (HY Spreads)
+ax3.plot(plot_df.index, plot_df['Credit_Z'], color='orange', lw=1.5)
+ax3.axhline(0, color='black', lw=1.2)
+ax3.fill_between(plot_df.index, 0, plot_df['Credit_Z'], where=(plot_df['Credit_Z']>=0), color='cyan', alpha=0.2)
+ax3.fill_between(plot_df.index, 0, plot_df['Credit_Z'], where=(plot_df['Credit_Z']<0), color='red', alpha=0.2)
+ax3.set_ylabel("Credit Health (Z)")
+apply_institutional_grid(ax3)
+
+# Add space between charts to accommodate labels
+plt.subplots_adjust(hspace=0.4)
+st.pyplot(fig)
