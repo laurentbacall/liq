@@ -5,12 +5,14 @@ import matplotlib.dates as mdates
 import yfinance as yf
 from fredapi import Fred
 import os
+import requests
+import io
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
 st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
-CACHE_FILE = "macro_data_persistence.parquet"
+CACHE_FILE = "macro_persistence_v3.parquet"
 
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
@@ -23,47 +25,45 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-# --- 2. DATA UTILITIES ---
+# --- 2. ROBUST DATA FETCHING ---
 
 def fetch_finra_margin():
-    """Fetches and cleans FINRA Margin Debt data."""
+    """Fetches FINRA Margin Debt with browser headers to avoid blocks."""
     url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        df_finra = pd.read_excel(url, skiprows=4)
+        response = requests.get(url, headers=headers)
+        df_finra = pd.read_excel(io.BytesIO(response.content), skiprows=4)
         df_finra = df_finra.dropna(subset=['Year-Month'])
         df_finra['Date'] = pd.to_datetime(df_finra['Year-Month'], format='%Y-%m') + pd.offsets.MonthEnd(0)
         df_finra = df_finra.set_index('Date')
         margin_col = [c for c in df_finra.columns if 'Debit Balances' in str(c)][0]
         s = df_finra[margin_col].astype(float)
         s.name = "Margin_Debt"
-        return s.to_frame() # Return as DF to ensure index stays consistent
+        return s.to_frame()
     except Exception:
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def get_master_data():
-    # 1. Load Persistence
     if os.path.exists(CACHE_FILE):
         df_main = pd.read_parquet(CACHE_FILE)
-        # Ensure index is datetime
         df_main.index = pd.to_datetime(df_main.index)
         last_sync = df_main.index.max()
     else:
         df_main = pd.DataFrame()
         last_sync = pd.to_datetime("1950-01-01")
 
-    # Only fetch if the last data point is older than yesterday
     if not df_main.empty and (pd.Timestamp.now() - last_sync).days < 1:
         return df_main
 
     updates = []
-
-    # 2. Fetch FRED
     series_ids = {
         'WALCL': 'Fed_Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP',
         'TB3MS': '3M_Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2', 
         'BAMLH0A0HYM2': 'HY_Spread', 'BAMLC0A0CM': 'IG_Spread',
         'SOFR': 'SOFR', 'TGCR': 'TGCR', 'VIXCLS': 'VIX_FRED',
+        'BOGZ1FL663067003Q': 'Margin_Proxy', # Backup Leverage
         'USREC': 'Recessions'
     }
     
@@ -75,134 +75,106 @@ def get_master_data():
                 updates.append(s.to_frame())
         except: continue
     
-    # 3. Fetch Yahoo (SP500 & VIX)
     try:
         yf_df = yf.download(["^GSPC", "^VIX"], start=last_sync, interval="1d", progress=False)
         if not yf_df.empty:
-            # Handle MultiIndex and extract 'Close'
-            if 'Close' in yf_df.columns:
-                close_data = yf_df['Close']
-                close_data.columns = ['SP500', 'VIX']
-                close_data.index = close_data.index.tz_localize(None)
-                updates.append(close_data)
+            close_data = yf_df['Close'].copy()
+            close_data.columns = ['SP500', 'VIX']
+            close_data.index = close_data.index.tz_localize(None)
+            updates.append(close_data)
     except: pass
 
-    # 4. Fetch FINRA
     finra_data = fetch_finra_margin()
-    if not finra_data.empty:
-        updates.append(finra_data)
+    if not finra_data.empty: updates.append(finra_data)
 
-    # 5. Merge & Save
     if updates:
         new_data = pd.concat(updates, axis=1)
-        # Force index to Datetime to prevent the TypeError
         new_data.index = pd.to_datetime(new_data.index)
         new_data = new_data.resample('D').ffill()
-        
-        if not df_main.empty:
-            df_main = new_data.combine_first(df_main)
-        else:
-            df_main = new_data
-
+        df_main = new_data.combine_first(df_main) if not df_main.empty else new_data
         df_main.sort_index().to_parquet(CACHE_FILE)
     
     return df_main
 
-# Load Data
 df = get_master_data()
 
-# --- 3. CALCULATIONS ---
-# Ensure we have data before calculating
+# --- 3. REFINED CALCULATIONS ---
 if not df.empty:
     df = df.ffill()
 
-    # Liquidity Decomposition
-    if 'Fed_Assets' in df.columns:
-        df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
-        df['Net_Liq_Z'] = (df['Net_Liq'] - df['Net_Liq'].rolling(1095).mean()) / df['Net_Liq'].rolling(1095).std()
+    # 1. Consolidated Monetary Flow
+    df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
+    net_liq_z = (df['Net_Liq'] - df['Net_Liq'].rolling(1095).mean()) / df['Net_Liq'].rolling(1095).std()
+    
+    df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
+    m2_growth = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
+    m2_z = (m2_growth - m2_growth.rolling(1095).mean()) / m2_growth.rolling(1095).std()
+    
+    df['Monetary_Impulse_Z'] = (net_liq_z + m2_z.fillna(0)) / 2
 
-    if 'CPI' in df.columns:
-        df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
-        if 'M2' in df.columns:
-            df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
-            df['M2_Real_Z'] = (df['M2_Real_Growth'] - df['M2_Real_Growth'].rolling(1095).mean()) / df['M2_Real_Growth'].rolling(1095).std()
-        df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df['CPI_YoY']
+    # 2. Quality Spread Z-Score
+    df['Quality_Spread_Abs'] = df['HY_Spread'] - df['IG_Spread']
+    df['Quality_Spread_Z'] = (df['Quality_Spread_Abs'] - df['Quality_Spread_Abs'].rolling(1095).mean()) / df['Quality_Spread_Abs'].rolling(1095).std()
 
-    # Quality Spread
-    if 'HY_Spread' in df.columns and 'IG_Spread' in df.columns:
-        df['Quality_Spread'] = df['HY_Spread'] - df['IG_Spread']
+    # 3. Leverage (FINRA with Proxy fallback)
+    lev_source = df['Margin_Debt'].fillna(df['Margin_Proxy'])
+    df['Leverage_Ratio'] = lev_source / df['SP500']
+    df['Leverage_Z'] = (df['Leverage_Ratio'] - df['Leverage_Ratio'].rolling(2500).mean()) / df['Leverage_Ratio'].rolling(2500).std()
 
-    # Leverage
-    if 'Margin_Debt' in df.columns and 'SP500' in df.columns:
-        df['Leverage_Ratio'] = df['Margin_Debt'] / df['SP500']
-        df['Leverage_Z'] = (df['Leverage_Ratio'] - df['Leverage_Ratio'].rolling(2500).mean()) / df['Leverage_Ratio'].rolling(2500).std()
-
-    # Funding
-    if 'SOFR' in df.columns and 'TGCR' in df.columns:
-        df['Funding_Stress'] = df['SOFR'] - df['TGCR']
+    # 4. Others
+    df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df['CPI_YoY']
+    df['Funding_Stress'] = (df['SOFR'] - df['TGCR']) * 100 # In Basis Points for visibility
 
 # --- 4. DASHBOARD ---
-if df.empty:
-    st.error("No data could be retrieved. Check your API key and connection.")
-    st.stop()
-
-# Date Selection
 monthly_range = pd.date_range(start='1950-01-01', end=df.index.max(), freq='MS')
-start_date, end_date = st.sidebar.select_slider(
-    "Select Period", options=monthly_range, 
-    value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y')
-)
+start, end = st.sidebar.select_slider("Period", options=monthly_range, value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
+p_df = df.loc[start:end]
 
-p_df = df.loc[start_date:end_date].copy()
-
-fig, axes = plt.subplots(5, 1, figsize=(14, 22), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1]})
+fig, axes = plt.subplots(5, 1, figsize=(14, 24), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1]})
 
 def apply_institutional_style(ax, title):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=13)
-    ax.grid(True, alpha=0.15)
-    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    ax.tick_params(axis='x', labelbottom=True)
+    # Restore Vertical Bars (Major = Year, Minor = Quarter)
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
+    ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.3)
+    ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.1)
+    ax.grid(True, which='major', axis='y', alpha=0.1)
+    ax.tick_params(labelbottom=True)
     if 'Recessions' in p_df.columns:
         ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.1)
 
-# Panel Plotting
-# 1. Market & Leverage
-if 'SP500' in p_df.columns:
-    axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
-    axes[0].set_yscale('log')
-    if 'Leverage_Z' in p_df.columns:
-        ax0_2 = axes[0].twinx()
-        ax0_2.plot(p_df.index, p_df['Leverage_Z'], color='orange', alpha=0.4)
-apply_institutional_style(axes[0], "1. Market & Leverage (Z)")
+# Panel 1: S&P & Leverage
+axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
+axes[0].set_yscale('log')
+if 'Leverage_Z' in p_df.columns:
+    ax0_2 = axes[0].twinx()
+    ax0_2.plot(p_df.index, p_df['Leverage_Z'], color='orange', alpha=0.5, label="Leverage Z")
+apply_institutional_style(axes[0], "1. S&P 500 & Trading Leverage Z-Score")
 
-# 2. Liquidity
-if 'Net_Liq_Z' in p_df.columns:
-    axes[1].plot(p_df.index, p_df['Net_Liq_Z'], color='purple', label="Fed Net Liq")
-if 'M2_Real_Z' in p_df.columns:
-    axes[1].plot(p_df.index, p_df['M2_Real_Z'], color='blue', alpha=0.5, label="M2 Real")
+# Panel 2: Consolidated Monetary Flow
+axes[1].plot(p_df.index, p_df['Monetary_Impulse_Z'], color='purple', lw=1.5)
 axes[1].axhline(0, color='black', lw=1)
-apply_institutional_style(axes[1], "2. Monetary Flow (Z)")
+axes[1].fill_between(p_df.index, 0, p_df['Monetary_Impulse_Z'], where=p_df['Monetary_Impulse_Z']>0, color='green', alpha=0.2)
+axes[1].fill_between(p_df.index, 0, p_df['Monetary_Impulse_Z'], where=p_df['Monetary_Impulse_Z']<0, color='red', alpha=0.2)
+apply_institutional_style(axes[1], "2. Monetary Impulse (Consolidated Net Liq + M2 Z-Score)")
 
-# 3. Real Rates
-if 'Real_3M_Rate' in p_df.columns:
-    axes[2].plot(p_df.index, p_df['Real_3M_Rate'], color='red')
-    axes[2].axhline(2, color='darkred', ls='--', alpha=0.5)
-    axes[2].axhline(0, color='green', ls='--', alpha=0.5)
+# Panel 3: Real Rates
+axes[2].plot(p_df.index, p_df['Real_3M_Rate'], color='red')
+axes[2].axhline(2, color='darkred', ls='--', alpha=0.5)
+axes[2].axhline(0, color='green', ls='--', alpha=0.5)
 apply_institutional_style(axes[2], "3. Real 3M Bill Rate (%)")
 
-# 4. Quality Spread
-if 'Quality_Spread' in p_df.columns:
-    axes[3].plot(p_df.index, p_df['Quality_Spread'], color='brown')
-apply_institutional_style(axes[3], "4. Quality Spread (HY-IG)")
+# Panel 4: Quality Spread Z
+axes[3].plot(p_df.index, p_df['Quality_Spread_Z'], color='brown')
+axes[3].axhline(0, color='black', lw=1)
+apply_institutional_style(axes[3], "4. Quality Spread (HY-IG) Z-Score")
 
-# 5. Funding & Vol
-if 'Funding_Stress' in p_df.columns:
-    axes[4].plot(p_df.index, p_df['Funding_Stress'], color='cyan')
-if 'VIX' in p_df.columns:
-    ax4_2 = axes[4].twinx()
-    ax4_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.2)
-apply_institutional_style(axes[4], "5. Funding Stress & VIX")
+# Panel 5: Funding & VIX
+axes[4].plot(p_df.index, p_df['Funding_Stress'], color='cyan', label="SOFR-TGCR (bps)")
+ax4_2 = axes[4].twinx()
+ax4_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.2, label="VIX")
+apply_institutional_style(axes[4], "5. Funding Stress (bps) & VIX")
 
 plt.tight_layout()
 st.pyplot(fig)
