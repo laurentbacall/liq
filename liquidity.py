@@ -64,18 +64,16 @@ df = get_master_data()
 
 # --- 3. CALCULATIONS ---
 if not df.empty:
-    # 1. Net Liquidity Level + Growth Z
+    # 1. Net Liquidity Level + Actual YoY %
     df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
-    df['Net_Liq_Growth_Z'] = (df['Net_Liq_YoY'] - df['Net_Liq_YoY'].rolling(1095).mean()) / df['Net_Liq_YoY'].rolling(1095).std()
     
-    # 2. M2 Real Level + Growth Z
+    # 2. M2 Real Level + Actual YoY %
     df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
     df['M2_Real_Level'] = df['M2'] / (df['CPI'] / 100)
     df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
-    df['M2_Growth_Z'] = (df['M2_Real_Growth'] - df['M2_Real_Growth'].rolling(1095).mean()) / df['M2_Real_Growth'].rolling(1095).std()
 
-    # 3. HY Spread Z
+    # 3. HY Spread Z & Levels
     if 'HY_Spread' in df.columns:
         df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
 
@@ -107,12 +105,11 @@ def apply_style(ax, title, invert_y=False):
     ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.15)
     ax.grid(True, which='major', axis='y', color='gray', linestyle=':', alpha=0.2)
     
-    # FIX: Restore labels on shared x-axis
+    # Persistent Year Labels on every axis
     ax.tick_params(labelbottom=True, labelsize=10)
     
     if invert_y: ax.invert_yaxis()
     if 'Recessions' in p_df.columns:
-        # Shading restored for every panel
         ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.15)
 
 # 1. S&P 500
@@ -120,33 +117,38 @@ axes[0].plot(p_df.index, p_df.get('SP500', 0), color='black', lw=2)
 axes[0].set_yscale('log')
 apply_style(axes[0], "1. S&P 500 (Log Scale)")
 
-# 2. Net Liquidity: Level (Shaded) + Growth Z (Line)
+# 2. Net Liquidity: Level (Shaded) + Actual YoY % (Line)
 ax2_level = axes[1]
-ax2_z = axes[1].twinx()
+ax2_growth = axes[1].twinx()
 ax2_level.fill_between(p_df.index, p_df['Net_Liq'], color='blue', alpha=0.08)
-ax2_z.plot(p_df.index, p_df['Net_Liq_Growth_Z'], color='blue', lw=1.5)
-ax2_z.axhline(0, color='black', lw=1, alpha=0.5)
-ax2_z.fill_between(p_df.index, 0, p_df['Net_Liq_Growth_Z'], where=p_df['Net_Liq_Growth_Z']>0, color='green', alpha=0.2)
-ax2_z.fill_between(p_df.index, 0, p_df['Net_Liq_Growth_Z'], where=p_df['Net_Liq_Growth_Z']<0, color='red', alpha=0.2)
-apply_style(axes[1], "2. Net Liquidity: Absolute Level ($) & Growth Z-Score")
+ax2_growth.plot(p_df.index, p_df['Net_Liq_YoY'], color='blue', lw=1.5)
+ax2_growth.axhline(0, color='black', lw=1, alpha=0.5)
+ax2_growth.fill_between(p_df.index, 0, p_df['Net_Liq_YoY'], where=p_df['Net_Liq_YoY']>0, color='green', alpha=0.2)
+ax2_growth.fill_between(p_df.index, 0, p_df['Net_Liq_YoY'], where=p_df['Net_Liq_YoY']<0, color='red', alpha=0.2)
+apply_style(axes[1], "2. Net Liquidity: Level ($) & Actual YoY % Growth")
 
-# 3. M2 Real: Level (Shaded) + Growth Z (Line)
+# 3. M2 Real: Level (Shaded) + Actual YoY % (Line)
 ax3_level = axes[2]
-ax3_z = axes[2].twinx()
+ax3_growth = axes[2].twinx()
 ax3_level.fill_between(p_df.index, p_df['M2_Real_Level'], color='purple', alpha=0.08)
-ax3_z.plot(p_df.index, p_df['M2_Growth_Z'], color='purple', lw=1.5)
-ax3_z.axhline(0, color='black', lw=1, alpha=0.5)
-ax3_z.fill_between(p_df.index, 0, p_df['M2_Growth_Z'], where=p_df['M2_Growth_Z']>0, color='teal', alpha=0.2)
-ax3_z.fill_between(p_df.index, 0, p_df['M2_Growth_Z'], where=p_df['M2_Growth_Z']<0, color='orange', alpha=0.2)
-apply_style(axes[2], "3. Real M2: Absolute Level & Growth Z-Score")
+ax3_growth.plot(p_df.index, p_df['M2_Real_Growth'], color='purple', lw=1.5)
+ax3_growth.axhline(0, color='black', lw=1, alpha=0.5)
+ax3_growth.fill_between(p_df.index, 0, p_df['M2_Real_Growth'], where=p_df['M2_Real_Growth']>0, color='teal', alpha=0.2)
+ax3_growth.fill_between(p_df.index, 0, p_df['M2_Real_Growth'], where=p_df['M2_Real_Growth']<0, color='orange', alpha=0.2)
+apply_style(axes[2], "3. Real M2: Level & Actual YoY % Growth")
 
-# 4. HY Spread Z (Inverted)
-if 'HY_Z' in p_df.columns:
-    axes[3].plot(p_df.index, p_df['HY_Z'], color='black', lw=0.8, alpha=0.4)
-    axes[3].axhline(0, color='black', lw=1)
-    axes[3].fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']>0, color='orange', alpha=0.4)
-    axes[3].fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']<0, color='cyan', alpha=0.3)
-apply_style(axes[3], "4. High Yield Spread Z-Score (Inverted: Negative Stress at Top)", invert_y=True)
+# 4. HY Spread: Absolute Level (Shaded) + Z-Score (Line)
+ax4_level = axes[3]
+ax4_z = axes[3].twinx()
+if 'HY_Spread' in p_df.columns:
+    ax4_level.fill_between(p_df.index, p_df['HY_Spread'], color='orange', alpha=0.1)
+    ax4_z.plot(p_df.index, p_df['HY_Z'], color='black', lw=1.2, alpha=0.7)
+    ax4_z.axhline(0, color='black', lw=1, alpha=0.5)
+    ax4_z.fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']>0, color='red', alpha=0.2) # High Z = Stress
+    ax4_z.fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']<0, color='cyan', alpha=0.2) # Low Z = Calm
+# Inverting BOTH axes so that lower spread/lower stress is at the top
+apply_style(axes[3], "4. High Yield Spread: Absolute Level & Z-Score (Inverted Scale)", invert_y=True)
+ax4_z.invert_yaxis()
 
 # 5. Real Rates (10Y & 3M)
 axes[4].plot(p_df.index, p_df.get('Real_10Y_Yield', 0), color='darkblue', label='Real 10Y (TIPS)', lw=1.8)
@@ -187,4 +189,4 @@ st.pyplot(fig)
 # --- 6. EXPORT ---
 st.markdown("---")
 csv = df.sort_index(ascending=False).to_csv().encode('utf-8')
-st.download_button("📥 Download Combined Audit CSV", data=csv, file_name="macro_monitor_final.csv", mime="text/csv")
+st.download_button("📥 Download Final Audit CSV", data=csv, file_name="macro_monitor_growth_actual.csv", mime="text/csv")
