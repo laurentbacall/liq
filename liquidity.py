@@ -7,6 +7,9 @@ from fredapi import Fred
 import os
 import requests
 import io
+import matplotlib as mpl
+mpl.rcParams['text.usetex'] = False
+mpl.rcParams['mathtext.fontset'] = 'stixsans' # Or another stable fontset
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
