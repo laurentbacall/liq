@@ -195,5 +195,9 @@ if 'VIX' in p_df.columns:
     ax4_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.2, label="VIX")
 apply_style(axes[4], "5. Funding Stress (bps) & VIX")
 
-plt.tight_layout()
+# Remove or comment out plt.tight_layout()
+# plt.tight_layout() 
+
+# Manually adjust subplots to prevent the math parser from triggering
+plt.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.05, hspace=0.4)
 st.pyplot(fig)
