@@ -12,7 +12,6 @@ import io
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
 st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
-# Incremental versioning for the cache
 CACHE_FILE = "macro_persistence_v5.parquet"
 
 if "FRED_API_KEY" in st.secrets:
@@ -26,7 +25,7 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-# --- 2. ROBUST DATA FETCHING ---
+# --- 2. DATA FETCHING ---
 
 def fetch_finra_margin():
     """Fetches FINRA Margin Debt with error handling."""
@@ -127,17 +126,19 @@ if not df.empty:
         df['Leverage_Ratio'] = lev_data / df['SP500']
         df['Leverage_Z'] = (df['Leverage_Ratio'] - df['Leverage_Ratio'].rolling(2500).mean()) / df['Leverage_Ratio'].rolling(2500).std()
 
-    # 4. Funding (Fix for Visibility)
+    # 4. Others
+    df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df.get('CPI_YoY', 0)
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
-        df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
+        # Interpolate to bridge weekend gaps for visibility
+        df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate(method='linear').ffill() * 100
 
-# --- 4. DATA EXPORT FEATURE ---
+# --- 4. DATA EXPORT ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("Export Data")
+st.sidebar.subheader("Audit & Quality Check")
 csv = df.to_csv().encode('utf-8')
-st.sidebar.download_button("Download All Series (CSV)", data=csv, file_name="macro_audit_data.csv", mime="text/csv")
+st.sidebar.download_button("📥 Download Audit CSV", data=csv, file_name="macro_liquidity_audit.csv", mime="text/csv")
 
-# --- 5. DASHBOARD PLOTTING ---
+# --- 5. DASHBOARD ---
 monthly_range = pd.date_range(start='1950-01-01', end=df.index.max(), freq='MS')
 start, end = st.sidebar.select_slider("Period", options=monthly_range, value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
 p_df = df.loc[start:end]
@@ -156,7 +157,7 @@ def apply_style(ax, title):
         ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.1)
 
 # Panel 1: S&P & Leverage
-axes[0].plot(p_df.index, p_df.get('SP500', 0), color='black', lw=2)
+axes[0].plot(p_df.index, p_df.get('SP500', pd.Series(0, index=p_df.index)), color='black', lw=2)
 axes[0].set_yscale('log')
 if 'Leverage_Z' in p_df.columns:
     ax0_2 = axes[0].twinx()
@@ -172,7 +173,7 @@ if 'Monetary_Impulse_Z' in p_df.columns:
 apply_style(axes[1], "2. Monetary Impulse (Unified Z-Score)")
 
 # Panel 3: Real Rates
-axes[2].plot(p_df.index, p_df.get('Real_3M_Rate', 0), color='red')
+axes[2].plot(p_df.index, p_df.get('Real_3M_Rate', pd.Series(0, index=p_df.index)), color='red')
 axes[2].axhline(2, color='darkred', ls='--', alpha=0.5)
 axes[2].axhline(0, color='green', ls='--', alpha=0.5)
 apply_style(axes[2], "3. Real 3M Bill Rate (%)")
@@ -183,7 +184,7 @@ if 'Quality_Spread_Z' in p_df.columns:
     axes[3].axhline(0, color='black', lw=1)
 apply_style(axes[3], "4. Quality Spread (HY-IG) Z-Score")
 
-# Panel 5: Funding & VIX
+# Panel 5: Funding Stress & VIX
 if 'Funding_Stress' in p_df.columns:
     axes[4].plot(p_df.index, p_df['Funding_Stress'], color='cyan', label="SOFR-TGCR (bps)")
 if 'VIX' in p_df.columns:
