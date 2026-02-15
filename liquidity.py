@@ -7,15 +7,13 @@ from fredapi import Fred
 import os
 import requests
 import io
-import matplotlib as mpl
-mpl.rcParams['text.usetex'] = False
-mpl.rcParams['mathtext.fontset'] = 'stixsans' # Or another stable fontset
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
 st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
-CACHE_FILE = "macro_persistence_v5.parquet"
+# Force a clean slate for the fix
+CACHE_FILE = "macro_persistence_v6.parquet"
 
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
@@ -31,7 +29,6 @@ fred = Fred(api_key=api_key)
 # --- 2. DATA FETCHING ---
 
 def fetch_finra_margin():
-    """Fetches FINRA Margin Debt with error handling."""
     url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
@@ -65,11 +62,12 @@ def get_master_data():
         return df_main
 
     updates = []
+    # FIX: TGCR changed to TGCRRATE
     series_ids = {
         'WALCL': 'Fed_Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP',
         'TB3MS': '3M_Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2', 
         'BAMLH0A0HYM2': 'HY_Spread', 'BAMLC0A0CM': 'IG_Spread',
-        'SOFR': 'SOFR', 'TGCR': 'TGCR', 'VIXCLS': 'VIX_FRED',
+        'SOFR': 'SOFR', 'TGCRRATE': 'TGCR', 'VIXCLS': 'VIX_FRED',
         'BOGZ1FL663067003Q': 'Margin_Proxy',
         'USREC': 'Recessions'
     }
@@ -109,7 +107,6 @@ df = get_master_data()
 if not df.empty:
     df = df.ffill()
 
-    # 1. Consolidated Monetary Flow
     if 'Fed_Assets' in df.columns and 'M2' in df.columns:
         df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
         net_liq_z = (df['Net_Liq'] - df['Net_Liq'].rolling(1095).mean()) / df['Net_Liq'].rolling(1095).std()
@@ -118,30 +115,26 @@ if not df.empty:
         m2_z = (m2_growth - m2_growth.rolling(1095).mean()) / m2_growth.rolling(1095).std()
         df['Monetary_Impulse_Z'] = (net_liq_z.fillna(0) + m2_z.fillna(0)) / 2
 
-    # 2. Quality Spread Z-Score
     if 'HY_Spread' in df.columns and 'IG_Spread' in df.columns:
         df['Quality_Spread_Abs'] = df['HY_Spread'] - df['IG_Spread']
         df['Quality_Spread_Z'] = (df['Quality_Spread_Abs'] - df['Quality_Spread_Abs'].rolling(1095).mean()) / df['Quality_Spread_Abs'].rolling(1095).std()
 
-    # 3. Leverage (Safety Logic)
     lev_data = df.get('Margin_Debt', df.get('Margin_Proxy', pd.Series(index=df.index, dtype=float)))
     if 'SP500' in df.columns and not lev_data.dropna().empty:
         df['Leverage_Ratio'] = lev_data / df['SP500']
         df['Leverage_Z'] = (df['Leverage_Ratio'] - df['Leverage_Ratio'].rolling(2500).mean()) / df['Leverage_Ratio'].rolling(2500).std()
 
-    # 4. Others
     df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df.get('CPI_YoY', 0)
+    
+    # IMPROVEMENT: Interpolate to fix daily gaps
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
-        # Interpolate to bridge weekend gaps for visibility
-        df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate(method='linear').ffill() * 100
+        df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
 
-# --- 4. DATA EXPORT ---
+# --- 4. EXPORT & DASHBOARD ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("Audit & Quality Check")
 csv = df.to_csv().encode('utf-8')
 st.sidebar.download_button("📥 Download Audit CSV", data=csv, file_name="macro_liquidity_audit.csv", mime="text/csv")
 
-# --- 5. DASHBOARD ---
 monthly_range = pd.date_range(start='1950-01-01', end=df.index.max(), freq='MS')
 start, end = st.sidebar.select_slider("Period", options=monthly_range, value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
 p_df = df.loc[start:end]
@@ -151,15 +144,13 @@ fig, axes = plt.subplots(5, 1, figsize=(14, 24), sharex=True, gridspec_kw={'heig
 def apply_style(ax, title):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=13)
     ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
     ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.3)
-    ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.1)
     ax.grid(True, which='major', axis='y', color='gray', linestyle=':', alpha=0.2)
     ax.tick_params(labelbottom=True)
     if 'Recessions' in p_df.columns:
         ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.1)
 
-# Panel 1: S&P & Leverage
+# Plotting Panels (using pd.Series fallback for safety)
 axes[0].plot(p_df.index, p_df.get('SP500', pd.Series(0, index=p_df.index)), color='black', lw=2)
 axes[0].set_yscale('log')
 if 'Leverage_Z' in p_df.columns:
@@ -167,7 +158,6 @@ if 'Leverage_Z' in p_df.columns:
     ax0_2.plot(p_df.index, p_df['Leverage_Z'], color='orange', alpha=0.5)
 apply_style(axes[0], "1. S&P 500 & Trading Leverage Z-Score")
 
-# Panel 2: Monetary Flow
 if 'Monetary_Impulse_Z' in p_df.columns:
     axes[1].plot(p_df.index, p_df['Monetary_Impulse_Z'], color='purple', lw=1.5)
     axes[1].axhline(0, color='black', lw=1)
@@ -175,19 +165,16 @@ if 'Monetary_Impulse_Z' in p_df.columns:
     axes[1].fill_between(p_df.index, 0, p_df['Monetary_Impulse_Z'], where=p_df['Monetary_Impulse_Z']<0, color='red', alpha=0.2)
 apply_style(axes[1], "2. Monetary Impulse (Unified Z-Score)")
 
-# Panel 3: Real Rates
 axes[2].plot(p_df.index, p_df.get('Real_3M_Rate', pd.Series(0, index=p_df.index)), color='red')
 axes[2].axhline(2, color='darkred', ls='--', alpha=0.5)
 axes[2].axhline(0, color='green', ls='--', alpha=0.5)
 apply_style(axes[2], "3. Real 3M Bill Rate (%)")
 
-# Panel 4: Quality Spread Z
 if 'Quality_Spread_Z' in p_df.columns:
     axes[3].plot(p_df.index, p_df['Quality_Spread_Z'], color='brown')
     axes[3].axhline(0, color='black', lw=1)
 apply_style(axes[3], "4. Quality Spread (HY-IG) Z-Score")
 
-# Panel 5: Funding Stress & VIX
 if 'Funding_Stress' in p_df.columns:
     axes[4].plot(p_df.index, p_df['Funding_Stress'], color='cyan', label="SOFR-TGCR (bps)")
 if 'VIX' in p_df.columns:
@@ -195,9 +182,6 @@ if 'VIX' in p_df.columns:
     ax4_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.2, label="VIX")
 apply_style(axes[4], "5. Funding Stress (bps) & VIX")
 
-# Remove or comment out plt.tight_layout()
-# plt.tight_layout() 
-
-# Manually adjust subplots to prevent the math parser from triggering
-plt.subplots_adjust(left=0.1, right=0.9, top=0.95, bottom=0.05, hspace=0.4)
+# FIX: Replace crashing tight_layout() with manual adjustment
+plt.subplots_adjust(left=0.08, right=0.92, top=0.97, bottom=0.05, hspace=0.3)
 st.pyplot(fig)
