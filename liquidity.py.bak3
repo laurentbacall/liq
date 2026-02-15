@@ -5,18 +5,19 @@ import matplotlib.dates as mdates
 import yfinance as yf
 from fredapi import Fred
 import os
+import requests
+import io
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
 st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
-# Force a clean cache for layout changes
-CACHE_FILE = "macro_persistence_v8.parquet"
+CACHE_FILE = "macro_persistence_v7.parquet"
 
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
 else:
-    api_key = st.text_input("Enter FRED API Key", type="password")
+    api_key = st.sidebar.text_input("Enter FRED API Key", type="password")
 
 if not api_key:
     st.info("Please enter your FRED API key to begin.")
@@ -24,7 +25,8 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-# --- 2. DATA FETCHING ---
+# --- 2. DATA FETCHING & ALERT SYSTEM ---
+
 @st.cache_data(ttl=3600)
 def get_master_data():
     series_ids = {
@@ -35,6 +37,7 @@ def get_master_data():
         'USREC': 'Recessions'
     }
     
+    # Explicit Series Existence Check
     missing_series = []
     updates = []
     
@@ -42,16 +45,17 @@ def get_master_data():
         try:
             s = fred.get_series(s_id)
             if s is None or s.empty:
-                missing_series.append(name)
+                missing_series.append(f"{name} ({s_id})")
             else:
                 s.name = name
                 updates.append(s.to_frame())
-        except:
-            missing_series.append(name)
+        except Exception:
+            missing_series.append(f"{name} ({s_id})")
 
     if missing_series:
-        st.warning(f"⚠️ FRED Series Missing: {', '.join(missing_series)}")
+        st.warning(f"⚠️ Critical Data Missing from FRED: {', '.join(missing_series)}")
 
+    # Fetch Yahoo Finance Data
     try:
         yf_df = yf.download(["^GSPC", "^VIX"], start="1950-01-01", interval="1d", progress=False)
         if not yf_df.empty:
@@ -64,7 +68,7 @@ def get_master_data():
     if updates:
         df_main = pd.concat(updates, axis=1)
         df_main.index = pd.to_datetime(df_main.index)
-        df_main = df_main.sort_index().ffill().ffill()
+        df_main = df_main.resample('D').ffill().ffill()
         return df_main
     return pd.DataFrame()
 
@@ -80,48 +84,47 @@ if not df.empty:
     m2_z = (m2_growth - m2_growth.rolling(1095).mean()) / m2_growth.rolling(1095).std()
     df['Monetary_Impulse_Z'] = (net_liq_z.fillna(0) + m2_z.fillna(0)) / 2
 
-    # High Yield Z
+    # Restored HY Spread Z only (Original style)
     if 'HY_Spread' in df.columns:
         df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
 
     # Real Rates
     df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df.get('CPI_YoY', 0)
     
-    # Funding Stress
+    # Funding Stress (bps)
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
 
-    # Leverage Indicator (Stand-alone)
-    if 'Margin_Proxy' in df.columns and 'SP500' in df.columns:
-        df['Lev_Ratio'] = df['Margin_Proxy'] / df['SP500']
-        df['Leverage_Z'] = (df['Lev_Ratio'] - df['Lev_Ratio'].rolling(2500).mean()) / df['Lev_Ratio'].rolling(2500).std()
+# --- 4. EXPORT (Sorted: Newest First) ---
+st.sidebar.markdown("---")
+# Sorting descending for the audit CSV
+audit_df = df.sort_index(ascending=False)
+csv = audit_df.to_csv().encode('utf-8')
+st.sidebar.download_button("📥 Download Audit CSV (Newest First)", data=csv, file_name="macro_audit_latest.csv", mime="text/csv")
 
-# --- 4. TOP SLIDER (No Sidebar) ---
+# --- 5. DASHBOARD PLOTTING ---
 monthly_range = pd.date_range(start='1950-01-01', end=df.index.max(), freq='MS')
-start, end = st.select_slider("Select Monitoring Period", options=monthly_range, value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
+start, end = st.sidebar.select_slider("Period", options=monthly_range, value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
 p_df = df.loc[start:end]
 
-# --- 5. PLOTTING ---
-fig, axes = plt.subplots(6, 1, figsize=(14, 28), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1, 1]})
+fig, axes = plt.subplots(5, 1, figsize=(14, 24), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1]})
 
 def apply_style(ax, title):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=13)
     ax.xaxis.set_major_locator(mdates.YearLocator())
+    # Restoration of Quarterly Vertical Lines
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
     ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.3)
     ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.15)
     ax.grid(True, which='major', axis='y', color='gray', linestyle=':', alpha=0.2)
     ax.tick_params(labelbottom=True)
-    # Restore Recession Shading
-    if 'Recessions' in p_df.columns:
-        ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.15)
 
-# 1. S&P
+# Panel 1: S&P 500
 axes[0].plot(p_df.index, p_df.get('SP500', pd.Series(0, index=p_df.index)), color='black', lw=2)
 axes[0].set_yscale('log')
 apply_style(axes[0], "1. S&P 500 (Log Scale)")
 
-# 2. Monetary Impulse
+# Panel 2: Monetary Impulse
 if 'Monetary_Impulse_Z' in p_df.columns:
     axes[1].plot(p_df.index, p_df['Monetary_Impulse_Z'], color='purple', lw=1.5)
     axes[1].axhline(0, color='black', lw=1)
@@ -129,40 +132,27 @@ if 'Monetary_Impulse_Z' in p_df.columns:
     axes[1].fill_between(p_df.index, 0, p_df['Monetary_Impulse_Z'], where=p_df['Monetary_Impulse_Z']<0, color='red', alpha=0.2)
 apply_style(axes[1], "2. Monetary Impulse Z-Score")
 
-# 3. HY Spread Z (Inverted)
+# Panel 3: HY Spread Z (Restored with Amber/Cyan)
 if 'HY_Z' in p_df.columns:
-    axes[2].plot(p_df.index, p_df['HY_Z'], color='black', lw=0.8, alpha=0.4)
+    axes[2].plot(p_df.index, p_df['HY_Z'], color='black', lw=0.8, alpha=0.5)
     axes[2].axhline(0, color='black', lw=1)
-    axes[2].fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']>0, color='orange', alpha=0.4)
-    axes[2].fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']<0, color='cyan', alpha=0.3)
-    axes[2].invert_yaxis() # Reversing Scale: Negatives on top
-apply_style(axes[2], "3. High Yield Spread Z-Score (Inverted Scale)")
+    axes[2].fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']>0, color='orange', alpha=0.4, label="Risk-Off (Amber)")
+    axes[2].fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']<0, color='cyan', alpha=0.3, label="Risk-On (Cyan)")
+apply_style(axes[2], "3. High Yield Spread Z-Score (Swapped)")
 
-# 4. Real Rates
+# Panel 4: Real Rates (Swapped)
 axes[3].plot(p_df.index, p_df.get('Real_3M_Rate', pd.Series(0, index=p_df.index)), color='red')
 axes[3].axhline(2, color='darkred', ls='--', alpha=0.5)
 axes[3].axhline(0, color='green', ls='--', alpha=0.5)
-apply_style(axes[3], "4. Real 3M Bill Rate (%)")
+apply_style(axes[3], "4. Real 3M Bill Rate (%) (Swapped)")
 
-# 5. Funding Stress
+# Panel 5: Funding Stress & VIX
 if 'Funding_Stress' in p_df.columns:
-    axes[4].plot(p_df.index, p_df['Funding_Stress'], color='blue', lw=1.5)
+    axes[4].plot(p_df.index, p_df['Funding_Stress'], color='blue', lw=1.5, label="SOFR-TGCR")
 if 'VIX' in p_df.columns:
     ax4_2 = axes[4].twinx()
-    ax4_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.1)
+    ax4_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.15)
 apply_style(axes[4], "5. Funding Stress (bps) & VIX")
-
-# 6. Leverage (New independent graph)
-if 'Leverage_Z' in p_df.columns:
-    axes[5].plot(p_df.index, p_df['Leverage_Z'], color='orange', lw=1.5)
-    axes[5].axhline(0, color='black', lw=1)
-    axes[5].fill_between(p_df.index, 0, p_df['Leverage_Z'], where=p_df['Leverage_Z']>0, color='orange', alpha=0.2)
-apply_style(axes[5], "6. Systemic Leverage Z-Score")
 
 plt.subplots_adjust(left=0.08, right=0.92, top=0.97, bottom=0.05, hspace=0.3)
 st.pyplot(fig)
-
-# --- 6. BOTTOM EXPORT ---
-st.markdown("---")
-csv = df.sort_index(ascending=False).to_csv().encode('utf-8')
-st.download_button("📥 Download Audit CSV (Full History, Newest First)", data=csv, file_name="macro_monitor_full.csv", mime="text/csv")
