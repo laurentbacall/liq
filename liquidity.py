@@ -24,11 +24,14 @@ fred = Fred(api_key=api_key)
 # --- 2. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_master_data():
+    # 1. Define FRED IDs (Added VIXCLS and SP500 for historical stability)
     series_ids = {
         'WALCL': 'Fed_Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP',
         'TB3MS': '3M_Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2', 
         'BAMLH0A0HYM2': 'HY_Spread', 'SOFR': 'SOFR', 'TGCRRATE': 'TGCR', 
-        'VIXCLS': 'VIX_FRED', 'BOGZ1FL663067003Q': 'Margin_Proxy',
+        'VIXCLS': 'VIX',        # FRED's VIX (Daily)
+        'SP500': 'SP500',      # FRED's S&P 500 (Daily)
+        'BOGZ1FL663067003Q': 'Margin_Proxy',
         'USREC': 'Recessions',
         'DFII10': 'Real_10Y_Yield',
         'T10Y2Y': 'Yield_Curve_2s10s',
@@ -36,6 +39,8 @@ def get_master_data():
     }
     
     updates = []
+    
+    # 2. Fetch all historical data from FRED first
     for s_id, name in series_ids.items():
         try:
             s = fred.get_series(s_id)
@@ -44,20 +49,35 @@ def get_master_data():
                 updates.append(s.to_frame())
         except: pass
 
+    # 3. Attempt to fetch "Fresh" data from Yahoo Finance for the last 30 days
     try:
-        yf_df = yf.download(["^GSPC", "^VIX"], start="1950-01-01", interval="1d", progress=False)
+        # We only need the most recent data to 'patch' the FRED lag
+        yf_df = yf.download(["^GSPC", "^VIX"], period="1mo", interval="1d", progress=False)
         if not yf_df.empty:
+            # Handle Multi-Index columns if present in newer yfinance versions
             close_data = yf_df['Close'].copy()
-            close_data.columns = ['SP500', 'VIX']
+            close_data.columns = ['SP500_YF', 'VIX_YF']
             close_data.index = close_data.index.tz_localize(None)
             updates.append(close_data)
-    except: pass
+    except Exception as e:
+        st.warning(f"Note: Could not fetch latest Yahoo Finance data. Using FRED history. Error: {e}")
 
     if updates:
         df_main = pd.concat(updates, axis=1)
         df_main.index = pd.to_datetime(df_main.index)
-        df_main = df_main.sort_index().ffill().ffill()
+        df_main = df_main.sort_index()
+
+        # 4. Patch FRED columns with Yahoo Finance data where FRED is lagging
+        if 'SP500_YF' in df_main.columns:
+            df_main['SP500'] = df_main['SP500'].fillna(df_main['SP500_YF'])
+        if 'VIX_YF' in df_main.columns:
+            df_main['VIX'] = df_main['VIX'].fillna(df_main['VIX_YF'])
+
+        # Clean up temporary YF columns and fill gaps
+        df_main = df_main.drop(columns=['SP500_YF', 'VIX_YF'], errors='ignore')
+        df_main = df_main.ffill().ffill()
         return df_main
+    
     return pd.DataFrame()
 
 df = get_master_data()
