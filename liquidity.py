@@ -8,7 +8,7 @@ from fredapi import Fred
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
-st.title("🛡️ Institutional Risk & Liquidity Monitor (High Sensitivity)")
+st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
@@ -61,19 +61,16 @@ def get_master_data():
 
 df = get_master_data()
 
-# --- 3. SENSITIVE CALCULATIONS ---
+# --- 3. CALCULATIONS & ALLOCATION MATH ---
 if not df.empty:
-    # Liquidity Momentum
+    # Liquidity
     df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
     df['Net_Liq_SMA'] = df['Net_Liq'].rolling(21).mean()
-    # Momentum: Is today's YoY growth higher than 90 days ago?
-    df['Net_Liq_Momentum'] = df['Net_Liq_YoY'] - df['Net_Liq_YoY'].shift(90)
     
-    # Macro Sensitivity
+    # Valuation
     df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
     df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
-    df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
     # Credit/Vol
     if 'HY_Spread' in df.columns:
@@ -83,106 +80,81 @@ if not df.empty:
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
 
-    # --- THE 100-POINT SCORING ENGINE (V2) ---
-    # Pillar 1: Liquidity (40 pts)
-    p1 = ( (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 20 ) # Flow
-    p2 = ( (df['Net_Liq_Momentum'] > 0).astype(int) * 20 )         # Acceleration
+    # SCORING ENGINE (Clean 100 Point Scale)
+    s1 = (df['Net_Liq_YoY'] > 0).astype(int) * 20
+    s2 = (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 20
+    s3 = (df['M2_Real_Growth'] > 0).astype(int) * 15
+    s4 = (df.get('Real_10Y_Yield', 5) < 1.0).astype(int) * 15
+    s5 = (df.get('HY_Z', 1) < 0.0).astype(int) * 10
+    s6 = (df.get('Funding_Stress', 50) < 15).astype(int) * 10
+    s7 = (df.get('VIX', 50) < df.get('VIX_SMA', 0)).astype(int) * 10
     
-    # Pillar 2: Valuation & Trend (30 pts)
-    p3 = ( (df['M2_Real_Growth'] > 0).astype(int) * 10 )          # Real Money expansion
-    p4 = ( (df.get('Real_10Y_Yield', 5) < 1.0).astype(int) * 10 ) # Rate gravity
-    p5 = ( (df['SP500'] > df['SP500_SMA200']).astype(int) * 10 )  # Price Trend Filter
-    
-    # Pillar 3: Credit & Vol (30 pts)
-    p6 = ( (df.get('HY_Z', 1) < 0).astype(int) * 10 )             # Credit widening check
-    p7 = ( (df.get('Funding_Stress', 50) < 10).astype(int) * 10 ) # Plumbing check
-    p8 = ( (df.get('VIX', 50) < df.get('VIX_SMA', 0)).astype(int) * 10 ) # Vol check
-
-    df['Total_Score'] = p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8
-    
-    # Strict Allocation Mapping
-    def map_alloc(row):
-        s = row['Total_Score']
-        # Immediate De-risking if Trend is broken
-        if row['SP500'] < row['SP500_SMA200']:
-            return 40 if s >= 50 else 0
-        if s >= 80: return 100
-        if s >= 60: return 75
-        if s >= 40: return 40
-        return 0
-
-    df['Allocation_Pct'] = df.apply(map_alloc, axis=1)
+    df['Total_Score'] = s1 + s2 + s3 + s4 + s5 + s6 + s7
+    df['Allocation_Pct'] = df['Total_Score'].apply(lambda s: 100 if s >= 80 else (75 if s >= 60 else (40 if s >= 40 else 0)))
 
 # --- 4. PERIOD SLIDER ---
 monthly_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='MS')
-start, end = st.select_slider("Select Monitoring Period", options=monthly_range, value=(monthly_range[-120], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
+start, end = st.select_slider("Select Period", options=monthly_range, value=(monthly_range[-120], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
 p_df = df.loc[start:end]
 
 # --- 5. PLOTTING ---
-fig, axes = plt.subplots(11, 1, figsize=(14, 60), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]})
+fig, axes = plt.subplots(11, 1, figsize=(14, 55), sharex=True)
 
-def apply_style(ax, title):
-    ax.set_title(title, loc='left', fontweight='bold', fontsize=13)
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.grid(True, which='major', axis='both', color='gray', linestyle='-', alpha=0.3)
-    if 'Recessions' in p_df.columns:
-        ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.15)
+def plot_line(ax, data, title, color='black', alpha=1.0, lw=1.5, ls='-'):
+    if not data.empty:
+        ax.plot(data.index, data, color=color, alpha=alpha, lw=lw, linestyle=ls)
+    ax.set_title(title, loc='left', fontweight='bold', fontsize=12)
+    ax.grid(True, alpha=0.3)
 
-# 1. S&P 500 + 200D SMA
-axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
-axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', linestyle='--', lw=1, label='200D SMA')
+# 1. SP500
+plot_line(axes[0], p_df['SP500'], "1. S&P 500 (Log)")
 axes[0].set_yscale('log')
-axes[0].legend()
-apply_style(axes[0], "1. S&P 500 vs 200-Day Trend Guardrail")
 
-# 2. Sensitive Allocation %
-axes[1].fill_between(p_df.index, p_df['Allocation_Pct'], color='blue', alpha=0.2)
-axes[1].plot(p_df.index, p_df['Allocation_Pct'], color='blue', lw=1.5)
+# 2. Allocation
+axes[1].fill_between(p_df.index, p_df['Allocation_Pct'], color='blue', alpha=0.1)
+plot_line(axes[1], p_df['Allocation_Pct'], "2. Target Allocation %", color='blue')
 axes[1].set_ylim(-5, 105)
-apply_style(axes[1], "2. Systematic Allocation (Momentum-Sensitive)")
 
-# 3. Net Liquidity Ribbon
-axes[2].plot(p_df.index, p_df['Net_Liq'], color='black', alpha=0.3)
-axes[2].plot(p_df.index, p_df['Net_Liq_SMA'], color='black', linestyle='--')
-axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']>=p_df['Net_Liq_SMA'], color='green', alpha=0.4)
-axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']<p_df['Net_Liq_SMA'], color='red', alpha=0.4)
-apply_style(axes[2], "3. Liquidity Ribbon (Flow Momentum)")
+# 3. Liquidity Ribbon
+axes[2].plot(p_df.index, p_df['Net_Liq_SMA'], color='black', linestyle='--', alpha=0.5)
+axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']>=p_df['Net_Liq_SMA'], color='green', alpha=0.3)
+axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']<p_df['Net_Liq_SMA'], color='red', alpha=0.3)
+plot_line(axes[2], p_df['Net_Liq'], "3. Net Liquidity Flow", alpha=0.3)
 
-# 4. M2 Real Growth (0% Threshold)
-ax4_y = axes[3].twinx()
-ax4_y.plot(p_df.index, p_df.get('M2_Real_Growth', np.zeros(len(p_df))), color='purple', lw=1.5)
-ax4_y.axhline(0, color='black', lw=1.5)
-apply_style(axes[3], "4. Real M2 Growth (Must be > 0% for Bullish)")
+# 4. M2 Real
+axes[3].axhline(0, color='red', linestyle=':')
+plot_line(axes[3], p_df['M2_Real_Growth'], "4. Real M2 Growth (Target > 0%)", color='purple')
 
-# 5. HY Spread Z-Score (0.0 Threshold)
-ax5_z = axes[4].twinx()
+# 5. HY Z-Score
 if 'HY_Z' in p_df.columns:
-    ax5_z.plot(p_df.index, p_df['HY_Z'], color='black')
-    ax5_z.axhline(0, color='red', linestyle=':')
-    ax5_z.invert_yaxis()
-apply_style(axes[4], "5. HY Spread Z-Score (Red Dotted = 0.0 Average)")
+    axes[4].axhline(0, color='red', linestyle=':')
+    plot_line(axes[4], p_df['HY_Z'], "5. HY Spread Z-Score (Inverted, Target < 0)", color='orange')
+    axes[4].invert_yaxis()
 
-# 6. Real 10Y Yield (1.0% Threshold)
-axes[5].plot(p_df.index, p_df.get('Real_10Y_Yield', np.zeros(len(p_df))), color='darkblue')
+# 6. Real 10Y
 axes[5].axhline(1.0, color='red', linestyle=':')
-apply_style(axes[5], "6. Real 10Y Yield (Red Dotted = 1.0% Gravity)")
+plot_line(axes[5], p_df.get('Real_10Y_Yield', pd.Series(dtype='float64')), "6. Real 10Y Yield (Target < 1.0%)", color='darkblue')
 
-# Remaining Graphs (7-11) as per Master Checklist
-axes[6].plot(p_df.index, p_df.get('Yield_Curve_2s10s', np.zeros(len(p_df))), color='darkgreen')
-apply_style(axes[6], "7. Yield Curve")
-axes[7].plot(p_df.index, p_df.get('USD_Index', np.zeros(len(p_df))), color='navy')
-apply_style(axes[7], "8. USD Index")
-axes[8].plot(p_df.index, p_df.get('VIX', np.zeros(len(p_df))), color='red')
-apply_style(axes[8], "9. VIX")
-axes[9].plot(p_df.index, p_df.get('Funding_Stress', np.zeros(len(p_df))), color='blue')
-axes[9].axhline(10, color='red', linestyle=':')
-apply_style(axes[9], "10. Funding Stress (10bps Threshold)")
-axes[10].plot(p_df.index, p_df.get('Leverage_Z', np.zeros(len(p_df))), color='orange')
-apply_style(axes[10], "11. Leverage Z-Score")
+# 7. Curve
+plot_line(axes[6], p_df.get('Yield_Curve_2s10s', pd.Series(dtype='float64')), "7. Yield Curve", color='darkgreen')
+axes[6].axhline(0, color='black', lw=1)
 
-plt.subplots_adjust(left=0.08, right=0.92, top=0.98, bottom=0.04, hspace=0.6)
+# 8. USD
+plot_line(axes[7], p_df.get('USD_Index', pd.Series(dtype='float64')), "8. USD Index", color='navy')
+
+# 9. VIX
+plot_line(axes[8], p_df.get('VIX', pd.Series(dtype='float64')), "9. VIX vs 20D SMA", color='red', lw=1)
+plot_line(axes[8], p_df.get('VIX_SMA', pd.Series(dtype='float64')), "", color='black', ls='--', alpha=0.6)
+
+# 10. Funding
+axes[9].axhline(15, color='red', linestyle=':')
+plot_line(axes[9], p_df.get('Funding_Stress', pd.Series(dtype='float64')), "10. Funding Stress (Target < 15bps)", color='blue')
+
+# 11. Leverage
+plot_line(axes[10], p_df.get('Leverage_Z', pd.Series(dtype='float64')), "11. Leverage Z-Score", color='brown')
+
+plt.tight_layout()
 st.pyplot(fig)
 
-# --- 6. DOWNLOAD FEATURE (Master Checklist Item 12) ---
-csv = p_df.to_csv().encode('utf-8')
-st.download_button(label="📥 Download Dashboard Data (CSV)", data=csv, file_name='macro_monitor_data.csv', mime='text/csv')
+# --- 6. DOWNLOAD ---
+st.download_button(label="📥 Download CSV", data=p_df.to_csv().encode('utf-8'), file_name='macro_data.csv')
