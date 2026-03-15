@@ -61,16 +61,17 @@ def get_master_data():
 
 df = get_master_data()
 
-# --- 3. CALCULATIONS & ALLOCATION MATH ---
+# --- 3. CALCULATIONS ---
 if not df.empty:
     # Liquidity
     df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
     df['Net_Liq_SMA'] = df['Net_Liq'].rolling(21).mean()
     
-    # Valuation
+    # Valuation & Trend
     df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
     df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
+    df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
     # Credit/Vol
     if 'HY_Spread' in df.columns:
@@ -80,7 +81,7 @@ if not df.empty:
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
 
-    # SCORING ENGINE (Clean 100 Point Scale)
+    # SCORING ENGINE (V3 - Sensitivity Focused)
     s1 = (df['Net_Liq_YoY'] > 0).astype(int) * 20
     s2 = (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 20
     s3 = (df['M2_Real_Growth'] > 0).astype(int) * 15
@@ -98,63 +99,83 @@ start, end = st.select_slider("Select Period", options=monthly_range, value=(mon
 p_df = df.loc[start:end]
 
 # --- 5. PLOTTING ---
-fig, axes = plt.subplots(11, 1, figsize=(14, 55), sharex=True)
+fig, axes = plt.subplots(11, 1, figsize=(14, 65))
 
-def plot_line(ax, data, title, color='black', alpha=1.0, lw=1.5, ls='-'):
-    if not data.empty:
-        ax.plot(data.index, data, color=color, alpha=alpha, lw=lw, linestyle=ls)
+def format_ax(ax, title):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=12)
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.tick_params(labelbottom=True, rotation=0) # Master requirement: year labels on every chart
     ax.grid(True, alpha=0.3)
 
-# 1. SP500
-plot_line(axes[0], p_df['SP500'], "1. S&P 500 (Log)")
+def get_s(col):
+    return p_df[col] if col in p_df.columns else pd.Series(np.zeros(len(p_df)), index=p_df.index)
+
+# 1. SP500 + SMA200
+axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
+if 'SP500_SMA200' in p_df.columns:
+    axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', linestyle='--', lw=1.5, label='200-Day SMA')
+    axes[0].legend(loc='upper left')
 axes[0].set_yscale('log')
+format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA")
 
 # 2. Allocation
-axes[1].fill_between(p_df.index, p_df['Allocation_Pct'], color='blue', alpha=0.1)
-plot_line(axes[1], p_df['Allocation_Pct'], "2. Target Allocation %", color='blue')
+axes[1].fill_between(p_df.index, get_s('Allocation_Pct'), color='blue', alpha=0.1)
+axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5)
 axes[1].set_ylim(-5, 105)
+format_ax(axes[1], "2. Systematic Allocation %")
 
 # 3. Liquidity Ribbon
-axes[2].plot(p_df.index, p_df['Net_Liq_SMA'], color='black', linestyle='--', alpha=0.5)
-axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']>=p_df['Net_Liq_SMA'], color='green', alpha=0.3)
-axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']<p_df['Net_Liq_SMA'], color='red', alpha=0.3)
-plot_line(axes[2], p_df['Net_Liq'], "3. Net Liquidity Flow", alpha=0.3)
+nl = get_s('Net_Liq')
+ns = get_s('Net_Liq_SMA')
+axes[2].plot(p_df.index, ns, color='black', ls='--', alpha=0.5)
+axes[2].fill_between(p_df.index, nl, ns, where=nl>=ns, color='green', alpha=0.3)
+axes[2].fill_between(p_df.index, nl, ns, where=nl<ns, color='red', alpha=0.3)
+axes[2].plot(p_df.index, nl, color='black', alpha=0.2)
+format_ax(axes[2], "3. Net Liquidity Flow (21D SMA Ribbon)")
 
 # 4. M2 Real
 axes[3].axhline(0, color='red', linestyle=':')
-plot_line(axes[3], p_df['M2_Real_Growth'], "4. Real M2 Growth (Target > 0%)", color='purple')
+axes[3].plot(p_df.index, get_s('M2_Real_Growth'), color='purple')
+format_ax(axes[3], "4. Real M2 Growth (Must be > 0%)")
 
 # 5. HY Z-Score
 if 'HY_Z' in p_df.columns:
     axes[4].axhline(0, color='red', linestyle=':')
-    plot_line(axes[4], p_df['HY_Z'], "5. HY Spread Z-Score (Inverted, Target < 0)", color='orange')
+    axes[4].plot(p_df.index, p_df['HY_Z'], color='orange')
     axes[4].invert_yaxis()
+format_ax(axes[4], "5. HY Spread Z-Score (Inverted)")
 
 # 6. Real 10Y
 axes[5].axhline(1.0, color='red', linestyle=':')
-plot_line(axes[5], p_df.get('Real_10Y_Yield', pd.Series(dtype='float64')), "6. Real 10Y Yield (Target < 1.0%)", color='darkblue')
+axes[5].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue')
+format_ax(axes[5], "6. Real 10Y Yield (Threshold 1.0%)")
 
-# 7. Curve
-plot_line(axes[6], p_df.get('Yield_Curve_2s10s', pd.Series(dtype='float64')), "7. Yield Curve", color='darkgreen')
-axes[6].axhline(0, color='black', lw=1)
+# 7. Yield Curve
+axes[6].axhline(0, color='black')
+axes[6].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen')
+format_ax(axes[6], "7. Yield Curve (10Y-2Y)")
 
 # 8. USD
-plot_line(axes[7], p_df.get('USD_Index', pd.Series(dtype='float64')), "8. USD Index", color='navy')
+axes[7].plot(p_df.index, get_s('USD_Index'), color='navy')
+format_ax(axes[7], "8. USD Index")
 
 # 9. VIX
-plot_line(axes[8], p_df.get('VIX', pd.Series(dtype='float64')), "9. VIX vs 20D SMA", color='red', lw=1)
-plot_line(axes[8], p_df.get('VIX_SMA', pd.Series(dtype='float64')), "", color='black', ls='--', alpha=0.6)
+axes[8].plot(p_df.index, get_s('VIX'), color='red', lw=1, alpha=0.7)
+axes[8].plot(p_df.index, get_s('VIX_SMA'), color='black', ls='--', lw=1)
+format_ax(axes[8], "9. VIX vs 20D SMA")
 
 # 10. Funding
 axes[9].axhline(15, color='red', linestyle=':')
-plot_line(axes[9], p_df.get('Funding_Stress', pd.Series(dtype='float64')), "10. Funding Stress (Target < 15bps)", color='blue')
+axes[9].plot(p_df.index, get_s('Funding_Stress'), color='blue')
+format_ax(axes[9], "10. Funding Stress (SOFR-TGCR bps)")
 
 # 11. Leverage
-plot_line(axes[10], p_df.get('Leverage_Z', pd.Series(dtype='float64')), "11. Leverage Z-Score", color='brown')
+axes[10].plot(p_df.index, get_s('Leverage_Z'), color='brown')
+format_ax(axes[10], "11. Leverage Z-Score")
 
-plt.tight_layout()
+plt.tight_layout(pad=3.0)
 st.pyplot(fig)
 
 # --- 6. DOWNLOAD ---
-st.download_button(label="📥 Download CSV", data=p_df.to_csv().encode('utf-8'), file_name='macro_data.csv')
+st.download_button(label="📥 Download Data (CSV)", data=p_df.to_csv().encode('utf-8'), file_name='macro_data.csv')
