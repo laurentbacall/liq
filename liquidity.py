@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
@@ -79,22 +80,15 @@ if not df.empty:
         df['VIX_SMA'] = df['VIX'].rolling(20).mean()
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
-
-    # D. ALLOCATION SCORING ENGINE (Vectorized for Graphing)
+    
+    # D. ALLOCATION SCORING ENGINE
     liq_score = ( (df['Net_Liq_YoY'] > 0).astype(int) * 15 ) + ( (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 25 )
     credit_score = ( (df.get('HY_Z', 1) < 0.5).astype(int) * 15 ) + ( (df.get('Funding_Stress', 50) < 15).astype(int) * 15 )
-    val_score = ( (df.get('Real_10Y_Yield', 5) < 1.5).astype(int) * 10 ) + ( (df['M2_Real_Growth'] > -2).astype(int) * 10 )
+    val_score = ( (df.get('Real_10Y_Yield', 5) < 1.5).astype(int) * 10 ) + ( (df.get('M2_Real_Growth', -10) > -2).astype(int) * 10 )
     vol_score = ( (df.get('VIX', 50) < df.get('VIX_SMA', 0)).astype(int) * 10 )
     
     df['Total_Score'] = liq_score + credit_score + val_score + vol_score
-    
-    # Map Score to Allocation Steps
-    def map_alloc(s):
-        if s >= 85: return 100
-        if s >= 60: return 75
-        if s >= 40: return 40
-        return 0
-    df['Allocation_Pct'] = df['Total_Score'].apply(map_alloc)
+    df['Allocation_Pct'] = df['Total_Score'].apply(lambda s: 100 if s >= 85 else (75 if s >= 60 else (40 if s >= 40 else 0)))
 
 # --- 4. PERIOD SLIDER ---
 monthly_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='MS')
@@ -117,13 +111,13 @@ axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
 axes[0].set_yscale('log')
 apply_style(axes[0], "1. S&P 500 (Log Scale)")
 
-# 2. NEW: Allocation %
-axes[1].fill_between(p_df.index, p_df['Allocation_Pct'], color='blue', alpha=0.2)
-axes[1].plot(p_df.index, p_df['Allocation_Pct'], color='blue', lw=1.5)
+# 2. Allocation %
+axes[1].fill_between(p_df.index, p_df.get('Allocation_Pct', 0), color='blue', alpha=0.2)
+axes[1].plot(p_df.index, p_df.get('Allocation_Pct', 0), color='blue', lw=1.5)
 axes[1].set_ylim(-5, 105)
 apply_style(axes[1], "2. Systematic Allocation (% S&P 500 Exposure)")
 
-# 3. Net Liquidity (RIBBON CROSSOVER)
+# 3. Net Liquidity (Ribbon)
 axes[2].plot(p_df.index, p_df['Net_Liq'], color='black', lw=0.8, alpha=0.5)
 axes[2].plot(p_df.index, p_df['Net_Liq_SMA'], color='black', linestyle='--', lw=1.2)
 axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']>=p_df['Net_Liq_SMA'], color='green', alpha=0.3)
@@ -133,7 +127,7 @@ apply_style(axes[2], "3. Liquidity Ribbon (Price vs 21D SMA)")
 # 4. M2 Real
 ax4_y = axes[3].twinx()
 axes[3].fill_between(p_df.index, p_df['M2_Real_Level'], color='purple', alpha=0.08)
-ax4_y.plot(p_df.index, p_df['M2_Real_Growth'], color='purple', lw=1.5)
+ax4_y.plot(p_df.index, p_df.get('M2_Real_Growth', np.zeros(len(p_df))), color='purple', lw=1.5)
 ax4_y.axhline(-2, color='red', linestyle=':', lw=1.5)
 apply_style(axes[3], "4. Real M2 Growth (Red Dotted = -2% Threshold)")
 
@@ -141,39 +135,39 @@ apply_style(axes[3], "4. Real M2 Growth (Red Dotted = -2% Threshold)")
 ax5_z = axes[4].twinx()
 if 'HY_Spread' in p_df.columns:
     axes[4].fill_between(p_df.index, p_df['HY_Spread'], color='orange', alpha=0.1)
-    ax5_z.plot(p_df.index, p_df['HY_Z'], color='black', lw=1.2)
+    ax5_z.plot(p_df.index, p_df.get('HY_Z', np.zeros(len(p_df))), color='black', lw=1.2)
     ax5_z.axhline(0.5, color='red', linestyle=':', lw=1.5)
     axes[4].invert_yaxis()
     ax5_z.invert_yaxis()
 apply_style(axes[4], "5. HY Spread Z-Score (Red Dotted = 0.5 Threshold)")
 
 # 6. Real Rates
-axes[5].plot(p_df.index, p_df.get('Real_10Y_Yield', 0), color='darkblue', lw=1.8, label='Real 10Y')
+axes[5].plot(p_df.index, p_df.get('Real_10Y_Yield', np.zeros(len(p_df))), color='darkblue', lw=1.8)
 axes[5].axhline(1.5, color='red', linestyle=':', lw=1.5)
 axes[5].axhline(0, color='black', lw=1)
 apply_style(axes[5], "6. Real 10Y Yield (Red Dotted = 1.5% Threshold)")
 
 # 7. Yield Curve
-axes[6].plot(p_df.index, p_df.get('T10Y2Y', 0), color='darkgreen')
+axes[6].plot(p_df.index, p_df.get('Yield_Curve_2s10s', np.zeros(len(p_df))), color='darkgreen')
 axes[6].axhline(0, color='black')
 apply_style(axes[6], "7. Yield Curve")
 
 # 8. USD
-axes[7].plot(p_df.index, p_df.get('USD_Index', 0), color='navy')
+axes[7].plot(p_df.index, p_df.get('USD_Index', np.zeros(len(p_df))), color='navy')
 apply_style(axes[7], "8. USD Index")
 
-# 9. VIX Standalone
-axes[8].plot(p_df.index, p_df.get('VIX', 0), color='red', lw=1)
-axes[8].plot(p_df.index, p_df.get('VIX_SMA', 0), color='black', linestyle='--', lw=1)
+# 9. VIX
+axes[8].plot(p_df.index, p_df.get('VIX', np.zeros(len(p_df))), color='red', lw=1)
+axes[8].plot(p_df.index, p_df.get('VIX_SMA', np.zeros(len(p_df))), color='black', linestyle='--', lw=1)
 apply_style(axes[8], "9. VIX vs 20D SMA")
 
 # 10. Funding
-axes[9].plot(p_df.index, p_df.get('Funding_Stress', 0), color='blue')
+axes[9].plot(p_df.index, p_df.get('Funding_Stress', np.zeros(len(p_df))), color='blue')
 axes[9].axhline(15, color='red', linestyle=':', lw=1.5)
 apply_style(axes[9], "10. Funding Stress (15bps Threshold)")
 
 # 11. Leverage
-axes[10].plot(p_df.index, p_df.get('Leverage_Z', 0), color='orange')
+axes[10].plot(p_df.index, p_df.get('Leverage_Z', np.zeros(len(p_df))), color='orange')
 apply_style(axes[10], "11. Systemic Leverage Z-Score")
 
 plt.subplots_adjust(left=0.08, right=0.92, top=0.98, bottom=0.04, hspace=0.6)
