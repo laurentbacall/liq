@@ -1,0 +1,26 @@
+The Master Checklist
+Graph 1 (S&P 500): Log Scale, Black Line, 1950 Start, Minor horizontal gridlines visible.
+
+Graph 2 (Net Liquidity): Shaded Level (Blue alpha) + Blue YoY% Line + Green/Red fills for positive/negative growth.
+
+Graph 3 (Real M2): Shaded Level (Purple alpha) + Purple YoY% Line + Teal/Orange fills for positive/negative growth.
+
+Graph 4 (HY Spread): Both Shaded Level and Black Z-Score Line must be Inverted (Higher = Tighter/Better).
+
+Graph 5 (Real Rates): Both Real 10Y (TIPS) and Real 3M Bill (Bill - CPI YoY) must be visible.
+
+Graph 6 (Yield Curve): 10Y-2Y Spread + Red/Green fills for inversion.
+
+Graph 7 (USD): Trade Weighted USD Index line.
+
+Graph 8 (Funding/VIX): Blue Funding Stress line + Red VIX line (on twin axis).
+
+Graph 9 (Leverage): Systemic Leverage Z-score (Orange) with min_periods=500 to ensure it starts before 2025.
+
+Global Requirements:
+
+Year labels on the bottom of every single chart.
+
+Gray Recession shading on every single chart.
+
+Anti-Crash: If Yahoo Finance rate-limits us, the app must switch to FRED S&P 500 data (starting in 2014) instead of showing an error.
