@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
 from fredapi import Fred
-import os
+from datetime import datetime, timedelta
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
@@ -24,189 +24,140 @@ fred = Fred(api_key=api_key)
 # --- 2. DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def get_master_data():
-    # 1. Define FRED IDs (Added VIXCLS and SP500 for historical stability)
     series_ids = {
         'WALCL': 'Fed_Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP',
         'TB3MS': '3M_Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2', 
         'BAMLH0A0HYM2': 'HY_Spread', 'SOFR': 'SOFR', 'TGCRRATE': 'TGCR', 
-        'VIXCLS': 'VIX',        # FRED's VIX (Daily)
-        'SP500': 'SP500',      # FRED's S&P 500 (Daily)
-        'BOGZ1FL663067003Q': 'Margin_Proxy',
-        'USREC': 'Recessions',
-        'DFII10': 'Real_10Y_Yield',
-        'T10Y2Y': 'Yield_Curve_2s10s',
-        'DTWEXBGS': 'USD_Index'
+        'VIXCLS': 'VIX', 'SP500': 'SP500_FRED',
+        'BOGZ1FL663067003Q': 'Margin_Proxy', 'USREC': 'Recessions',
+        'DFII10': 'Real_10Y_Yield', 'T10Y2Y': 'Yield_Curve_2s10s', 'DTWEXBGS': 'USD_Index'
     }
     
     updates = []
-    
-    # 2. Fetch all historical data from FRED first
+    # 1. Fetch FRED Data
     for s_id, name in series_ids.items():
         try:
             s = fred.get_series(s_id)
             if s is not None:
-                s.name = name
-                updates.append(s.to_frame())
+                updates.append(s.to_frame(name))
         except: pass
 
-    # 3. Attempt to fetch "Fresh" data from Yahoo Finance for the last 30 days
+    # 2. Yahoo Finance Strategy
+    # A. Historical SP500 Patch (Weekly) to avoid rate limits
     try:
-        # We only need the most recent data to 'patch' the FRED lag
-        yf_df = yf.download(["^GSPC", "^VIX"], period="1mo", interval="1d", progress=False)
-        if not yf_df.empty:
-            # Handle Multi-Index columns if present in newer yfinance versions
-            close_data = yf_df['Close'].copy()
-            close_data.columns = ['SP500_YF', 'VIX_YF']
-            close_data.index = close_data.index.tz_localize(None)
-            updates.append(close_data)
-    except Exception as e:
-        st.warning(f"Note: Could not fetch latest Yahoo Finance data. Using FRED history. Error: {e}")
+        yf_hist = yf.download("^GSPC", start="1950-01-01", end="2014-01-01", interval="1wk", progress=False)
+        if not yf_hist.empty:
+            hist_close = yf_hist['Close'].to_frame('SP500_Hist')
+            hist_close.index = hist_close.index.tz_localize(None)
+            updates.append(hist_close)
+    except: pass
+
+    # B. Recent Patch (Daily) for the last 30 days
+    try:
+        yf_recent = yf.download(["^GSPC", "^VIX"], period="1mo", interval="1d", progress=False)
+        if not yf_recent.empty:
+            recent_close = yf_recent['Close'].copy()
+            recent_close.columns = ['SP500_Recent', 'VIX_Recent']
+            recent_close.index = recent_close.index.tz_localize(None)
+            updates.append(recent_close)
+    except: pass
 
     if updates:
         df_main = pd.concat(updates, axis=1)
         df_main.index = pd.to_datetime(df_main.index)
         df_main = df_main.sort_index()
 
-        # 4. Patch FRED columns with Yahoo Finance data where FRED is lagging
-        if 'SP500_YF' in df_main.columns:
-            df_main['SP500'] = df_main['SP500'].fillna(df_main['SP500_YF'])
-        if 'VIX_YF' in df_main.columns:
-            df_main['VIX'] = df_main['VIX'].fillna(df_main['VIX_YF'])
-
-        # Clean up temporary YF columns and fill gaps
-        df_main = df_main.drop(columns=['SP500_YF', 'VIX_YF'], errors='ignore')
-        df_main = df_main.ffill().ffill()
-        return df_main
-    
+        # Merge SP500 sources: Recent > FRED > Historical
+        df_main['SP500'] = df_main['SP500_Recent'].combine_first(df_main['SP500_FRED']).combine_first(df_main['SP500_Hist'])
+        df_main['VIX'] = df_main['VIX_Recent'].combine_first(df_main['VIX'])
+        
+        return df_main.ffill().ffill()
     return pd.DataFrame()
 
 df = get_master_data()
 
 # --- 3. CALCULATIONS ---
 if not df.empty:
-    # 1. Net Liquidity Level + Actual YoY %
     df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
-    
-    # 2. M2 Real Level + Actual YoY %
     df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
     df['M2_Real_Level'] = df['M2'] / (df['CPI'] / 100)
     df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
-
-    # 3. HY Spread Z & Levels
+    
     if 'HY_Spread' in df.columns:
         df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
 
-    # 4. Real Rates
     df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df.get('CPI_YoY', 0)
     
-    # 5. Leverage Z
     if 'Margin_Proxy' in df.columns and 'SP500' in df.columns:
         df['Lev_Ratio'] = df['Margin_Proxy'] / df['SP500']
-        df['Leverage_Z'] = (df['Lev_Ratio'] - df['Lev_Ratio'].rolling(2500).mean()) / df['Lev_Ratio'].rolling(2500).std()
+        # FIX: Added min_periods=500 to allow the curve to start earlier than 10 years
+        df['Leverage_Z'] = (df['Lev_Ratio'] - df['Lev_Ratio'].rolling(2500, min_periods=500).mean()) / \
+                           df['Lev_Ratio'].rolling(2500, min_periods=500).std()
 
-    # 6. Funding Stress
-    if 'SOFR' in df.columns and 'TGCR' in df.columns:
-        df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
+    if 'SOFR' in df.columns and 'TGCRRATE' in df.columns:
+        df['Funding_Stress'] = (df['SOFR'] - df['TGCRRATE']).interpolate().ffill() * 100
 
 # --- 4. UI: PERIOD SLIDER ---
 monthly_range = pd.date_range(start='1950-01-01', end=df.index.max(), freq='MS')
 start, end = st.select_slider("Select Monitoring Period", options=monthly_range, value=(monthly_range[-240], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
 p_df = df.loc[start:end]
 
-# --- 5. DASHBOARD PLOTTING ---
+# --- 5. PLOTTING ---
 fig, axes = plt.subplots(9, 1, figsize=(14, 48), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1, 1, 1, 1, 1]})
 
 def apply_style(ax, title, invert_y=False):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=13)
     ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=[1, 4, 7, 10]))
-    ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.3)
-    ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.15)
-    ax.grid(True, which='major', axis='y', color='gray', linestyle=':', alpha=0.2)
-    
-    # Persistent Year Labels on every axis
+    ax.grid(True, which='major', axis='both', color='gray', linestyle='-', alpha=0.3)
     ax.tick_params(labelbottom=True, labelsize=10)
-    
     if invert_y: ax.invert_yaxis()
     if 'Recessions' in p_df.columns:
         ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.15)
 
-# 1. S&P 500
+# 1. S&P 500 (Enhanced with Minor Gridlines for Log Scale)
 axes[0].plot(p_df.index, p_df.get('SP500', 0), color='black', lw=2)
 axes[0].set_yscale('log')
+axes[0].grid(True, which='minor', axis='y', color='gray', linestyle=':', alpha=0.1)
 apply_style(axes[0], "1. S&P 500 (Log Scale)")
 
-# 2. Net Liquidity: Level (Shaded) + Actual YoY % (Line)
-ax2_level = axes[1]
-ax2_growth = axes[1].twinx()
-ax2_level.fill_between(p_df.index, p_df['Net_Liq'], color='blue', alpha=0.08)
-ax2_growth.plot(p_df.index, p_df['Net_Liq_YoY'], color='blue', lw=1.5)
-ax2_growth.axhline(0, color='black', lw=1, alpha=0.5)
-ax2_growth.fill_between(p_df.index, 0, p_df['Net_Liq_YoY'], where=p_df['Net_Liq_YoY']>0, color='green', alpha=0.2)
-ax2_growth.fill_between(p_df.index, 0, p_df['Net_Liq_YoY'], where=p_df['Net_Liq_YoY']<0, color='red', alpha=0.2)
+# 2. Net Liquidity
+ax2_l = axes[1]; ax2_g = axes[1].twinx()
+ax2_l.fill_between(p_df.index, p_df['Net_Liq'], color='blue', alpha=0.08)
+ax2_g.plot(p_df.index, p_df['Net_Liq_YoY'], color='blue', lw=1.5)
+ax2_g.axhline(0, color='black', lw=1, alpha=0.5)
 apply_style(axes[1], "2. Net Liquidity: Level ($) & Actual YoY % Growth")
 
-# 3. M2 Real: Level (Shaded) + Actual YoY % (Line)
-ax3_level = axes[2]
-ax3_growth = axes[2].twinx()
-ax3_level.fill_between(p_df.index, p_df['M2_Real_Level'], color='purple', alpha=0.08)
-ax3_growth.plot(p_df.index, p_df['M2_Real_Growth'], color='purple', lw=1.5)
-ax3_growth.axhline(0, color='black', lw=1, alpha=0.5)
-ax3_growth.fill_between(p_df.index, 0, p_df['M2_Real_Growth'], where=p_df['M2_Real_Growth']>0, color='teal', alpha=0.2)
-ax3_growth.fill_between(p_df.index, 0, p_df['M2_Real_Growth'], where=p_df['M2_Real_Growth']<0, color='orange', alpha=0.2)
+# 3. M2 Real
+ax3_l = axes[2]; ax3_g = axes[2].twinx()
+ax3_l.fill_between(p_df.index, p_df['M2_Real_Level'], color='purple', alpha=0.08)
+ax3_g.plot(p_df.index, p_df['M2_Real_Growth'], color='purple', lw=1.5)
+ax3_g.axhline(0, color='black', lw=1, alpha=0.5)
 apply_style(axes[2], "3. Real M2: Level & Actual YoY % Growth")
 
-# 4. HY Spread: Absolute Level (Shaded) + Z-Score (Line)
-ax4_level = axes[3]
-ax4_z = axes[3].twinx()
+# 4. HY Spread
+ax4_l = axes[3]; ax4_z = axes[3].twinx()
 if 'HY_Spread' in p_df.columns:
-    ax4_level.fill_between(p_df.index, p_df['HY_Spread'], color='orange', alpha=0.1)
+    ax4_l.fill_between(p_df.index, p_df['HY_Spread'], color='orange', alpha=0.1)
     ax4_z.plot(p_df.index, p_df['HY_Z'], color='black', lw=1.2, alpha=0.7)
-    ax4_z.axhline(0, color='black', lw=1, alpha=0.5)
-    ax4_z.fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']>0, color='red', alpha=0.2) # High Z = Stress
-    ax4_z.fill_between(p_df.index, 0, p_df['HY_Z'], where=p_df['HY_Z']<0, color='cyan', alpha=0.2) # Low Z = Calm
-# Inverting BOTH axes so that lower spread/lower stress is at the top
-apply_style(axes[3], "4. High Yield Spread: Absolute Level & Z-Score (Inverted Scale)", invert_y=True)
-ax4_z.invert_yaxis()
+    ax4_z.invert_yaxis()
+apply_style(axes[3], "4. High Yield Spread: Absolute Level & Z-Score (Inverted)", invert_y=True)
 
-# 5. Real Rates (10Y & 3M)
+# 5. Real Rates
 axes[4].plot(p_df.index, p_df.get('Real_10Y_Yield', 0), color='darkblue', label='Real 10Y (TIPS)', lw=1.8)
 axes[4].plot(p_df.index, p_df.get('Real_3M_Rate', 0), color='red', label='Real 3M Bill', alpha=0.4, lw=1)
-axes[4].axhline(0, color='black', lw=1)
-axes[4].legend(loc='upper left', fontsize='small')
+axes[4].axhline(0, color='black', lw=1); axes[4].legend(loc='upper left', fontsize='small')
 apply_style(axes[4], "5. Real Rates (%) - Valuation Gravity")
 
-# 6. Yield Curve
-if 'Yield_Curve_2s10s' in p_df.columns:
-    axes[5].plot(p_df.index, p_df['Yield_Curve_2s10s'], color='darkgreen', lw=1.5)
-    axes[5].axhline(0, color='black', lw=1)
-    axes[5].fill_between(p_df.index, 0, p_df['Yield_Curve_2s10s'], where=p_df['Yield_Curve_2s10s']<0, color='red', alpha=0.2)
+# 6-9: Other indicators
+if 'Yield_Curve_2s10s' in p_df.columns: axes[5].plot(p_df.index, p_df['Yield_Curve_2s10s'], color='darkgreen', lw=1.5)
 apply_style(axes[5], "6. Yield Curve (10Y-2Y Spread)")
-
-# 7. USD Index
-if 'USD_Index' in p_df.columns:
-    axes[6].plot(p_df.index, p_df['USD_Index'], color='navy', lw=1.5)
-apply_style(axes[6], "7. U.S. Dollar Index (Trade Weighted)")
-
-# 8. Funding Stress & VIX
-if 'Funding_Stress' in p_df.columns:
-    axes[7].plot(p_df.index, p_df['Funding_Stress'], color='blue', lw=1.2)
-if 'VIX' in p_df.columns:
-    ax7_2 = axes[7].twinx()
-    ax7_2.plot(p_df.index, p_df['VIX'], color='red', alpha=0.1)
-apply_style(axes[7], "8. Funding Stress (bps) & VIX")
-
-# 9. Leverage
-if 'Leverage_Z' in p_df.columns:
-    axes[8].plot(p_df.index, p_df['Leverage_Z'], color='orange', lw=1.5)
-    axes[8].axhline(0, color='black', lw=1)
+if 'USD_Index' in p_df.columns: axes[6].plot(p_df.index, p_df['USD_Index'], color='navy', lw=1.5)
+apply_style(axes[6], "7. U.S. Dollar Index")
+if 'Funding_Stress' in p_df.columns: axes[7].plot(p_df.index, p_df['Funding_Stress'], color='blue', lw=1.2)
+apply_style(axes[7], "8. Funding Stress (bps)")
+if 'Leverage_Z' in p_df.columns: axes[8].plot(p_df.index, p_df['Leverage_Z'], color='orange', lw=1.5)
 apply_style(axes[8], "9. Systemic Leverage Z-Score")
 
 plt.subplots_adjust(left=0.08, right=0.92, top=0.98, bottom=0.02, hspace=0.45)
 st.pyplot(fig)
-
-# --- 6. EXPORT ---
-st.markdown("---")
-csv = df.sort_index(ascending=False).to_csv().encode('utf-8')
-st.download_button("📥 Download Final Audit CSV", data=csv, file_name="macro_monitor_growth_actual.csv", mime="text/csv")
