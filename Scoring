@@ -1,0 +1,13 @@
+1. Liquidity
+Is NetLiq YoY >0? (Long-term trend)
+Is NetLiq>SMA(21 days)? (Immediate momentum/turning point)
+
+2. Credit & Stress Pillar (30 Points) – "The Foundation"
+Is HY Spread Z-Score<0.5? (Credit is stable)
+
+3. Valuation & Real Rates (20 Points) – "The Gravity"
+Is Real 10Y<1.5%? (Low gravity/High multiples justified)
+Is Real M2 Growth>−2%? (Structural money isn't collapsing)
+
+4. Volatility Filter (10 Points) – "The Guardrail"
+Test G: Is VIX<SMA(20 days)?
