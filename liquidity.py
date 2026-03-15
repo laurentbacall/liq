@@ -55,44 +55,46 @@ def get_master_data():
         df_main.index = pd.to_datetime(df_main.index).tz_localize(None)
         if 'SP500_YF' in df_main.columns:
             df_main['SP500'] = df_main['SP500_YF'].combine_first(df_main.get('SP500_FRED', pd.Series(dtype='float64')))
-        else:
-            df_main['SP500'] = df_main.get('SP500_FRED', pd.Series(dtype='float64'))
         df_main = df_main.sort_index().ffill()
-        
     return df_main
 
 df = get_master_data()
 
-# --- 3. CALCULATIONS ---
+# --- 3. CALCULATIONS & SCORING ---
 if not df.empty:
-    # Liquidity
+    # A. Liquidity Pillar
     df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
     df['Net_Liq_SMA'] = df['Net_Liq'].rolling(21).mean()
     
-    # M2 & Real Rates
+    # B. Valuation Pillar
     df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
-    df['M2_Real_Level'] = df['M2'] / (df['CPI'] / 100)
     df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
-    df['Real_3M_Rate'] = df.get('3M_Bill', 0) - df.get('CPI_YoY', 0)
+    df['M2_Real_Level'] = df['M2'] / (df['CPI'] / 100)
     
-    # Credit Z-Score
+    # C. Credit & Vol Pillars
     if 'HY_Spread' in df.columns:
         df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
-
-    # VIX SMA
     if 'VIX' in df.columns:
         df['VIX_SMA'] = df['VIX'].rolling(20).mean()
-
-    # Leverage
-    if 'Margin_Proxy' in df.columns and 'SP500' in df.columns:
-        df['Lev_Ratio'] = df['Margin_Proxy'] / df['SP500']
-        df['Leverage_Z'] = (df['Lev_Ratio'] - df['Lev_Ratio'].rolling(2500, min_periods=500).mean()) / \
-                           df['Lev_Ratio'].rolling(2500, min_periods=500).std()
-
-    # Funding
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
+
+    # D. ALLOCATION SCORING ENGINE (Vectorized for Graphing)
+    liq_score = ( (df['Net_Liq_YoY'] > 0).astype(int) * 15 ) + ( (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 25 )
+    credit_score = ( (df.get('HY_Z', 1) < 0.5).astype(int) * 15 ) + ( (df.get('Funding_Stress', 50) < 15).astype(int) * 15 )
+    val_score = ( (df.get('Real_10Y_Yield', 5) < 1.5).astype(int) * 10 ) + ( (df['M2_Real_Growth'] > -2).astype(int) * 10 )
+    vol_score = ( (df.get('VIX', 50) < df.get('VIX_SMA', 0)).astype(int) * 10 )
+    
+    df['Total_Score'] = liq_score + credit_score + val_score + vol_score
+    
+    # Map Score to Allocation Steps
+    def map_alloc(s):
+        if s >= 85: return 100
+        if s >= 60: return 75
+        if s >= 40: return 40
+        return 0
+    df['Allocation_Pct'] = df['Total_Score'].apply(map_alloc)
 
 # --- 4. PERIOD SLIDER ---
 monthly_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='MS')
@@ -100,8 +102,7 @@ start, end = st.select_slider("Select Monitoring Period", options=monthly_range,
 p_df = df.loc[start:end]
 
 # --- 5. PLOTTING ---
-# 10 Graphs now to separate Funding Stress and Leverage
-fig, axes = plt.subplots(10, 1, figsize=(14, 52), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1, 1, 1, 1, 1, 1]})
+fig, axes = plt.subplots(11, 1, figsize=(14, 58), sharex=True, gridspec_kw={'height_ratios': [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]})
 
 def apply_style(ax, title):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=13)
@@ -114,76 +115,70 @@ def apply_style(ax, title):
 # 1. S&P 500
 axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
 axes[0].set_yscale('log')
-axes[0].grid(True, which='minor', axis='y', color='gray', linestyle=':', alpha=0.1)
 apply_style(axes[0], "1. S&P 500 (Log Scale)")
 
-# 2. Net Liquidity (SMA added)
-ax2_y = axes[1].twinx()
-axes[1].fill_between(p_df.index, p_df['Net_Liq'], color='blue', alpha=0.08)
-axes[1].plot(p_df.index, p_df['Net_Liq_SMA'], color='black', linestyle='--', lw=1, label='21D SMA')
-ax2_y.plot(p_df.index, p_df['Net_Liq_YoY'], color='blue', lw=1.5)
-ax2_y.axhline(0, color='black', lw=1, alpha=0.5)
-ax2_y.fill_between(p_df.index, 0, p_df['Net_Liq_YoY'], where=p_df['Net_Liq_YoY']>0, color='green', alpha=0.2)
-ax2_y.fill_between(p_df.index, 0, p_df['Net_Liq_YoY'], where=p_df['Net_Liq_YoY']<0, color='red', alpha=0.2)
-apply_style(axes[1], "2. Net Liquidity (Black Dashed = 21D SMA)")
+# 2. NEW: Allocation %
+axes[1].fill_between(p_df.index, p_df['Allocation_Pct'], color='blue', alpha=0.2)
+axes[1].plot(p_df.index, p_df['Allocation_Pct'], color='blue', lw=1.5)
+axes[1].set_ylim(-5, 105)
+apply_style(axes[1], "2. Systematic Allocation (% S&P 500 Exposure)")
 
-# 3. M2 Real (Threshold added)
-ax3_y = axes[2].twinx()
-axes[2].fill_between(p_df.index, p_df['M2_Real_Level'], color='purple', alpha=0.08)
-ax3_y.plot(p_df.index, p_df['M2_Real_Growth'], color='purple', lw=1.5)
-ax3_y.axhline(-2, color='red', linestyle=':', lw=1.5, label='-2% Threshold') # Threshold
-ax3_y.axhline(0, color='black', lw=1, alpha=0.5)
-ax3_y.fill_between(p_df.index, 0, p_df['M2_Real_Growth'], where=p_df['M2_Real_Growth']>0, color='teal', alpha=0.2)
-apply_style(axes[2], "3. Real M2 (Red Dotted = -2% Threshold)")
+# 3. Net Liquidity (RIBBON CROSSOVER)
+axes[2].plot(p_df.index, p_df['Net_Liq'], color='black', lw=0.8, alpha=0.5)
+axes[2].plot(p_df.index, p_df['Net_Liq_SMA'], color='black', linestyle='--', lw=1.2)
+axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']>=p_df['Net_Liq_SMA'], color='green', alpha=0.3)
+axes[2].fill_between(p_df.index, p_df['Net_Liq'], p_df['Net_Liq_SMA'], where=p_df['Net_Liq']<p_df['Net_Liq_SMA'], color='red', alpha=0.3)
+apply_style(axes[2], "3. Liquidity Ribbon (Price vs 21D SMA)")
 
-# 4. HY Spread (Threshold added)
-ax4_z = axes[3].twinx()
+# 4. M2 Real
+ax4_y = axes[3].twinx()
+axes[3].fill_between(p_df.index, p_df['M2_Real_Level'], color='purple', alpha=0.08)
+ax4_y.plot(p_df.index, p_df['M2_Real_Growth'], color='purple', lw=1.5)
+ax4_y.axhline(-2, color='red', linestyle=':', lw=1.5)
+apply_style(axes[3], "4. Real M2 Growth (Red Dotted = -2% Threshold)")
+
+# 5. HY Spread (Inverted)
+ax5_z = axes[4].twinx()
 if 'HY_Spread' in p_df.columns:
-    axes[3].fill_between(p_df.index, p_df['HY_Spread'], color='orange', alpha=0.1)
-    ax4_z.plot(p_df.index, p_df['HY_Z'], color='black', lw=1.2)
-    ax4_z.axhline(0.5, color='red', linestyle=':', lw=1.5) # Threshold
-    axes[3].invert_yaxis()
-    ax4_z.invert_yaxis()
-apply_style(axes[3], "4. HY Spread Z-Score (Red Dotted = 0.5 Threshold)")
+    axes[4].fill_between(p_df.index, p_df['HY_Spread'], color='orange', alpha=0.1)
+    ax5_z.plot(p_df.index, p_df['HY_Z'], color='black', lw=1.2)
+    ax5_z.axhline(0.5, color='red', linestyle=':', lw=1.5)
+    axes[4].invert_yaxis()
+    ax5_z.invert_yaxis()
+apply_style(axes[4], "5. HY Spread Z-Score (Red Dotted = 0.5 Threshold)")
 
-# 5. Real Rates (Threshold added)
-axes[4].plot(p_df.index, p_df.get('Real_10Y_Yield', 0), color='darkblue', label='Real 10Y (TIPS)', lw=1.8)
-axes[4].plot(p_df.index, p_df.get('Real_3M_Rate', 0), color='red', label='Real 3M Bill', alpha=0.4, lw=1)
-axes[4].axhline(1.5, color='red', linestyle=':', lw=1.5) # Threshold
-axes[4].axhline(0, color='black', lw=1)
-axes[4].legend(loc='upper left', fontsize='small')
-apply_style(axes[4], "5. Real Rates (Red Dotted = 1.5% Real 10Y Threshold)")
+# 6. Real Rates
+axes[5].plot(p_df.index, p_df.get('Real_10Y_Yield', 0), color='darkblue', lw=1.8, label='Real 10Y')
+axes[5].axhline(1.5, color='red', linestyle=':', lw=1.5)
+axes[5].axhline(0, color='black', lw=1)
+apply_style(axes[5], "6. Real 10Y Yield (Red Dotted = 1.5% Threshold)")
 
-# 6. Yield Curve
-if 'Yield_Curve_2s10s' in p_df.columns:
-    axes[5].plot(p_df.index, p_df['Yield_Curve_2s10s'], color='darkgreen', lw=1.5)
-    axes[5].axhline(0, color='black', lw=1)
-    axes[5].fill_between(p_df.index, 0, p_df['Yield_Curve_2s10s'], where=p_df['Yield_Curve_2s10s']<0, color='red', alpha=0.2)
-apply_style(axes[5], "6. Yield Curve (10Y-2Y)")
+# 7. Yield Curve
+axes[6].plot(p_df.index, p_df.get('T10Y2Y', 0), color='darkgreen')
+axes[6].axhline(0, color='black')
+apply_style(axes[6], "7. Yield Curve")
 
-# 7. USD Index
-if 'USD_Index' in p_df.columns:
-    axes[6].plot(p_df.index, p_df['USD_Index'], color='navy', lw=1.5)
-apply_style(axes[6], "7. U.S. Dollar Index")
+# 8. USD
+axes[7].plot(p_df.index, p_df.get('USD_Index', 0), color='navy')
+apply_style(axes[7], "8. USD Index")
 
-# 8. VIX standalone (SMA added)
-if 'VIX' in p_df.columns:
-    axes[7].plot(p_df.index, p_df['VIX'], color='red', lw=1.2, label='VIX')
-    axes[7].plot(p_df.index, p_df['VIX_SMA'], color='black', linestyle='--', lw=1, label='20D SMA')
-    axes[7].legend(loc='upper right', fontsize='small')
-apply_style(axes[7], "8. Volatility (VIX vs 20D SMA)")
+# 9. VIX Standalone
+axes[8].plot(p_df.index, p_df.get('VIX', 0), color='red', lw=1)
+axes[8].plot(p_df.index, p_df.get('VIX_SMA', 0), color='black', linestyle='--', lw=1)
+apply_style(axes[8], "9. VIX vs 20D SMA")
 
-# 9. Funding Stress standalone
-if 'Funding_Stress' in p_df.columns:
-    axes[8].plot(p_df.index, p_df['Funding_Stress'], color='blue', lw=1.2)
-    axes[8].axhline(15, color='red', linestyle=':', lw=1)
-apply_style(axes[8], "9. Funding Stress (SOFR-TGCR bps)")
+# 10. Funding
+axes[9].plot(p_df.index, p_df.get('Funding_Stress', 0), color='blue')
+axes[9].axhline(15, color='red', linestyle=':', lw=1.5)
+apply_style(axes[9], "10. Funding Stress (15bps Threshold)")
 
-# 10. Leverage
-if 'Leverage_Z' in p_df.columns:
-    axes[9].plot(p_df.index, p_df['Leverage_Z'], color='orange', lw=1.5)
-    axes[9].axhline(0, color='black', lw=1)
-apply_style(axes[9], "10. Systemic Leverage Z-Score")
+# 11. Leverage
+axes[10].plot(p_df.index, p_df.get('Leverage_Z', 0), color='orange')
+apply_style(axes[10], "11. Systemic Leverage Z-Score")
 
-plt.subplots_adjust(left=0.08, right=0.92, top=0.98, bottom=0.02, hspace=0.5)
+plt.subplots_adjust(left=0.08, right=0.92, top=0.98, bottom=0.04, hspace=0.6)
 st.pyplot(fig)
+
+# --- 6. DOWNLOAD FEATURE ---
+csv = p_df.to_csv().encode('utf-8')
+st.download_button(label="📥 Download Dashboard Data (CSV)", data=csv, file_name='macro_monitor_data.csv', mime='text/csv')
