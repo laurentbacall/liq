@@ -11,3 +11,6 @@ Is Real M2 Growth>−2%? (Structural money isn't collapsing)
 
 4. Volatility Filter (10 Points) – "The Guardrail"
 Test G: Is VIX<SMA(20 days)?
+
+After 2022 bear market challenge
+The Deceleration Penalty: Instead of checking if Liquidity is $>0$, we now check if the Growth Rate is slowing down. If Liquidity growth today is lower than it was 3 months ago, you lose points. This catches the "Peak" months before the "Crash."The 200-Day Guardrail: We have added the S&P 500 vs. its 200-day Moving Average as a mandatory filter. If the price breaks the 200-day SMA, the maximum possible allocation is capped at 40%, regardless of how good the liquidity looks.Tightened Thresholds:Real 10Y: Threshold lowered from $1.5\%$ to $1.0\%$. (1.5% was too late for the 2022 rate shock).HY Spread: Threshold lowered from $0.5$ to $0.0$. (If credit is even slightly worse than its 3-year average, we reduce exposure).M2 Real Growth: Now requires $>0\%$ growth to be bullish (previously $-2\%$).
