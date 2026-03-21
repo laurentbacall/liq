@@ -71,7 +71,7 @@ def get_master_data():
                 df_macro[name] = pd.to_datetime(s)
         except: pass
 
-    # Ensure every single date is a proper Datetime object
+    # Ensure every date is a proper Datetime object for math
     df_sp.index = pd.to_datetime(df_sp.index)
     df_macro.index = pd.to_datetime(df_macro.index)
 
@@ -83,20 +83,18 @@ def get_master_data():
     df_combined = df_combined.ffill().dropna(subset=['SP500'])
     
     return df_combined
-    
-    return df_combined
 
 df = get_master_data()
 
 # --- 3. CALCULATIONS ---
 if not df.empty:
     df['Net_Liq'] = df.get('Fed_Assets', 0) - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
-    df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
+    df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(periods=252) * 100
     df['Net_Liq_SMA'] = df['Net_Liq'].rolling(21).mean()
     df['CPI_YoY'] = df.get('CPI', pd.Series(dtype=float)).pct_change(365) * 100
     df['M2_Real_Growth'] = (df.get('M2', pd.Series(dtype=float)).pct_change(365) * 100) - df['CPI_YoY']
     # REQ: SMA 200
-    df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
+    df['SP500_SMA200'] = df['SP500'].rolling(window=200).mean()
     
     # Calculation: YoY Growth of the FINRA Margin Debt
     # This works now because the index is strictly Datetime
@@ -135,6 +133,9 @@ start_s, end_s = st.select_slider(
     value=(timeline[-121], timeline[-1]), 
     format_func=lambda x: x.strftime('%Y-%m')
 )
+
+# Use truncate to safely slice without triggering Timestamp subtraction errors
+p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 fig, axes = plt.subplots(11, 1, figsize=(14, 75))
