@@ -53,17 +53,25 @@ def get_master_data():
             s.index = pd.to_datetime(s.index).tz_localize(None)
             series_dict[name] = s
         except: pass
-    # Add the FINRA Scraper before the final join
+    # --- ADD THIS INSIDE get_master_data() ---
     try:
+        # 3. Robust FINRA Scraper
         finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
         df_f = pd.read_excel(finra_url)
-        # Dynamic search for the start of data
+        
+        # Clean the Excel: find the row where data actually starts
         start_row = df_f.index[df_f.iloc[:, 0].astype(str).str.contains('Month', na=False)].tolist()[0]
         df_f = pd.read_excel(finra_url, skiprows=start_row + 1)
+        
+        # Standardize columns
         df_f.columns = ['Date', 'Margin_Debt', 'Cash', 'Securities']
         df_f['Date'] = pd.to_datetime(df_f['Date'])
-        series_dict['Margin_Debt'] = df_f.set_index('Date')['Margin_Debt']
-    except: pass
+        
+        # Add to our master dictionary
+        series_dict['Margin_Debt'] = df_f.set_index('Date')['Margin_Debt'].astype(float)
+    except Exception as e:
+        st.error(f"FINRA Connection Error: {e}")
+
     # 3. Join everything on the UNION of all dates
     # This prevents CPI from being cut off if FINRA or S&P 500 is missing data
     df = pd.concat(series_dict, axis=1).sort_index()
