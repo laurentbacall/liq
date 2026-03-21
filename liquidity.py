@@ -30,44 +30,43 @@ fred = Fred(api_key=api_key)
 @st.cache_data(ttl=3600)
 def get_master_data():
     start_date = "1950-01-01"
-    series_map = {}
+    series_dict = {}
 
-    # 1. Fetch S&P 500 (The Primary Daily Index)
+    # 1. Yahoo Finance S&P 500
     try:
-        sp_data = yf.download("^GSPC", start=start_date, interval="1d", progress=False)
-        if not sp_data.empty:
-            if isinstance(sp_data.columns, pd.MultiIndex):
-                sp_data.columns = sp_data.columns.get_level_values(0)
-            series_map['SP500'] = sp_data['Close']
+        sp = yf.download("^GSPC", start=start_date, interval="1d", progress=False)
+        if not sp.empty:
+            if isinstance(sp.columns, pd.MultiIndex): sp.columns = sp.columns.get_level_values(0)
+            series_dict['SP500'] = sp['Close']
     except: pass
 
-    # 2. Fetch FRED Series
+    # 2. FRED Series (Fetch everything individually)
     fred_ids = {
         'VIXCLS': 'VIX', 'BAMLH0A0HYM2': 'HY_Spread', 'CPIAUCSL': 'CPI',
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'WTREGEN': 'TGA', 
-        'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s'
+        'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s',
+        'DFII10': 'Real_10Y_Yield'
     }
-
     for fid, name in fred_ids.items():
         try:
             s = fred.get_series(fid, observation_start=start_date)
-            # Ensure timezone-naive to match Yahoo
             s.index = pd.to_datetime(s.index).tz_localize(None)
-            series_map[name] = s
+            series_dict[name] = s
         except: pass
 
-    # 3. Combine EVERYTHING using 'outer' join to prevent clipping
-    # This ensures CPI updates even if S&P 500 hasn't traded yet
-    df_combined = pd.concat(series_map, axis=1).sort_index()
+    # 3. Join everything on the UNION of all dates
+    # This prevents CPI from being cut off if FINRA or S&P 500 is missing data
+    df = pd.concat(series_dict, axis=1).sort_index()
 
-    # 4. Fill gaps: Daily series (VIX/HY) don't need much filling, 
-    # but Monthly (CPI/M2) need to be carried forward.
-    df_combined = df_combined.ffill()
+    # 4. Apply forward fill to expand monthly data to daily
+    # Daily series like VIX and HY will NOT be affected because they already have daily data
+    df = df.ffill()
 
-    # 5. Final Filter: Only keep rows where we have an S&P 500 price
-    if 'SP500' in df_combined.columns:
-        return df_combined.dropna(subset=['SP500'])
-    return df_combined
+    # 5. Trim to only show dates where the S&P 500 actually exists
+    if 'SP500' in df.columns:
+        df = df.dropna(subset=['SP500'])
+    
+    return df
 
 
 df = get_master_data()
@@ -105,17 +104,28 @@ if not df.empty:
     df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
     df['VIX_SMA'] = df['VIX'].rolling(20).mean()
 
-    # REQ: 7-Point Scoring
-    s1 = (df.get('Net_Liq_YoY', 0) > 0).astype(int) * 20
-    s2 = (df.get('Net_Liq', 0) > df.get('Net_Liq_SMA', 0)).astype(int) * 20
-    s3 = (df.get('M2_Real_Growth', 0) > 0).astype(int) * 15
-    s4 = (df.get('Real_10Y_Yield', 5) < 1.0).astype(int) * 15
-    s5 = (df.get('HY_Z', 1) < 0.0).astype(int) * 10
-    s6 = (df.get('Funding_Stress', 50) < 15).astype(int) * 10
-    s7 = (df.get('VIX', 50) < df.get('VIX_SMA', 0)).astype(int) * 10
-    
-    df['Total_Score'] = s1 + s2 + s3 + s4 + s5 + s6 + s7
-    df['Allocation_Pct'] = df['Total_Score'].apply(lambda s: 100 if s >= 80 else (75 if s >= 60 else (40 if s >= 40 else 0)))
+# --- 3. CALCULATIONS & SCORING ---
+if not df.empty:
+    # 1. Ensure all columns exist as Series to prevent the 'bool' AttributeError
+    required_cols = {
+        'Net_Liq_YoY': 0, 'Net_Liq': 0, 'Net_Liq_SMA': 0, 
+        'M2_Real_Growth': 0, 'Real_10Y_Yield': 5, 'HY_Z': 1, 
+        'Funding_Stress': 50, 'VIX': 20, 'VIX_SMA': 20
+    }
+    for col, default in required_cols.items():
+        if col not in df.columns:
+            df[col] = default # This creates a Series filled with the default value
+
+    # 2. Now calculate signals safely (using actual Series)
+    s1 = (df['Net_Liq_YoY'] > 0).astype(int) * 20
+    s2 = (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 20
+    s3 = (df['M2_Real_Growth'] > 0).astype(int) * 15
+    s4 = (df['Real_10Y_Yield'] < 1.0).astype(int) * 15
+    s5 = (df['HY_Z'] < 0.0).astype(int) * 10
+    s6 = (df['Funding_Stress'] < 15).astype(int) * 10
+    s7 = (df['VIX'] < df['VIX_SMA']).astype(int) * 10
+
+    df['Allocation_Pct'] = s1 + s2 + s3 + s4 + s5 + s6 + s7
 
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
