@@ -90,11 +90,30 @@ def get_master_data():
     # Add FINRA to the slow group
     df_slow = pd.concat([df_slow, df_finra], axis=1)
 
-    # 4. MASTER JOIN: Only ffill the slow data, then join to the daily data
-    df_slow = df_slow.reindex(df_sp.index).ffill()
-    df_combined = pd.concat([df_sp, df_slow], axis=1).sort_index()
+# 4. MASTER JOIN: Maintain Daily Granularity
+    # Ensure df_sp has the column name we expect
+    if not df_sp.empty:
+        # If Yahoo returns a MultiIndex, flatten it
+        if isinstance(df_sp.columns, pd.MultiIndex):
+            df_sp.columns = df_sp.columns.get_level_values(0)
+        if 'Close' in df_sp.columns:
+            df_sp = df_sp[['Close']].rename(columns={'Close': 'SP500'})
     
-    return df_combined.dropna(subset=['SP500'])
+    # Reindex the slow data (Monthly/Weekly) to the daily SP500 index and fill gaps
+    if not df_sp.empty:
+        df_slow_filled = df_slow.reindex(df_sp.index).ffill()
+        # Combine everything
+        df_combined = pd.concat([df_sp, df_slow_filled], axis=1).sort_index()
+    else:
+        # Fallback if Yahoo Finance fails
+        df_combined = df_slow.ffill()
+
+    # 5. Safety check before returning
+    if 'SP500' in df_combined.columns:
+        return df_combined.dropna(subset=['SP500'])
+    else:
+        return df_combined
+
 df = get_master_data()
 
 # --- 3. CALCULATIONS ---
