@@ -63,7 +63,7 @@ def get_master_data():
         df_finra = pd.DataFrame()
 
     # Combine with your existing df_macro
-    df_macro = pd.concat([df_macro, df_finra], axis=1)
+    df_macro = df_finra
     
     for s_id, name in series_ids.items():
         try:
@@ -73,9 +73,13 @@ def get_master_data():
                 df_macro[name] = s
         except: pass
 
-    df_combined = pd.concat([df_sp, df_macro], axis=1).sort_index()
+    # Force the macro data to match the daily S&P 500 dates exactly
+    master_index = df_sp.index
+    df_macro_aligned = df_macro.reindex(master_index)
+    
+    # Combine and fill the gaps (forward fill)
+    df_combined = pd.concat([df_sp, df_macro_aligned], axis=1).sort_index()
     df_combined = df_combined.ffill().dropna(subset=['SP500'])
-    df_combined.index = pd.to_datetime(df_combined.index)
     return df_combined
 
 df = get_master_data()
@@ -164,8 +168,8 @@ axes[9].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[
 # 11. Daily Leverage Proxy (Equity / M2 Ratio Z-Score)
 axes[10].axhline(0, color='black', lw=1)
 axes[10].axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone
-axes[10].plot(p_df.index, get_s('Leverage_Z'), color='firebrick', lw=1.5)
-axes[10].fill_between(p_df.index, get_s('Leverage_Z'), 0, color='firebrick', alpha=0.2)
+axes[10].plot(p_df.index, get_s('Margin_Velocity'), color='firebrick', lw=1.5)
+axes[10].fill_between(p_df.index, get_s('Margin_Velocity'), 0, color='firebrick', alpha=0.2)
 format_ax(axes[10], "11. FINRA debt velocity")
 
 plt.tight_layout(pad=4.0)
