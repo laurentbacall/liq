@@ -74,14 +74,21 @@ def get_master_data():
                 # We want the values to remain as numbers.
                 df_macro[name] = s 
         except: pass
+    # Ensure both dataframes have proper Datetime indices
+    df_sp.index = pd.to_datetime(df_sp.index)
+    df_macro.index = pd.to_datetime(df_macro.index)
 
-    # 5. Master Alignment (Fixes the "Stretched" X-axis)
-    if not df_sp.empty:
-        # Join ensures all macro data is forced onto the S&P 500 daily calendar
-        df_combined = df_sp.join(df_macro, how='left').sort_index()
-        df_combined = df_combined.ffill()
-    else:
-        df_combined = df_macro.ffill()
+    # MASTER ALIGNMENT: 
+    # Use 'outer' join first to capture ALL daily data points from both sources
+    df_combined = df_sp.join(df_macro, how='outer').sort_index()
+
+    # Fill the gaps ONLY for series that aren't daily (like M2 or Margin Debt)
+    # Truly daily series like HY Spreads will now keep their unique daily values
+    df_combined = df_combined.ffill()
+
+    # Finally, trim the dataframe to match the S&P 500's existence
+    if 'SP500' in df_combined.columns:
+        df_combined = df_combined.dropna(subset=['SP500'])
     
     return df_combined
 
