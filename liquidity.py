@@ -45,7 +45,7 @@ def get_master_data():
         'VIXCLS': 'VIX', 'BAMLH0A0HYM2': 'HY_Spread', 'CPIAUCSL': 'CPI',
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'WTREGEN': 'TGA', 
         'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s',
-        'DFII10': 'Real_10Y_Yield'
+        'DFII10': 'Real_10Y_Yield','SOFR': 'SOFR','TGCRRATE': 'TGCR'
     }
     for fid, name in fred_ids.items():
         try:
@@ -53,7 +53,17 @@ def get_master_data():
             s.index = pd.to_datetime(s.index).tz_localize(None)
             series_dict[name] = s
         except: pass
-
+    # Add the FINRA Scraper before the final join
+    try:
+        finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
+        df_f = pd.read_excel(finra_url)
+        # Dynamic search for the start of data
+        start_row = df_f.index[df_f.iloc[:, 0].astype(str).str.contains('Month', na=False)].tolist()[0]
+        df_f = pd.read_excel(finra_url, skiprows=start_row + 1)
+        df_f.columns = ['Date', 'Margin_Debt', 'Cash', 'Securities']
+        df_f['Date'] = pd.to_datetime(df_f['Date'])
+        series_dict['Margin_Debt'] = df_f.set_index('Date')['Margin_Debt']
+    except: pass
     # 3. Join everything on the UNION of all dates
     # This prevents CPI from being cut off if FINRA or S&P 500 is missing data
     df = pd.concat(series_dict, axis=1).sort_index()
@@ -103,6 +113,13 @@ if not df.empty:
         
     df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
     df['VIX_SMA'] = df['VIX'].rolling(20).mean()
+    # 2. FINRA Debt Velocity
+    if 'Margin_Debt' in df.columns:
+        # Since it's monthly data joined to daily, we use 252 (trading days) or 12 (months) 
+        # based on how it's sampled. 252 is safer for daily charts.
+        df['Margin_Velocity'] = df['Margin_Debt'].pct_change(periods=252) * 100
+    else:
+        df['Margin_Velocity'] = 0
 
 # --- 3. CALCULATIONS & SCORING ---
 if not df.empty:
