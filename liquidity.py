@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import yfinance as yf
 from fredapi import Fred
-from datetime import datetime
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
@@ -22,64 +21,66 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-# --- 2. DATA FETCHING (Fixed for 'Today' sync) ---
+# --- 2. DATA FETCHING (Anti-Crash & Live Sync) ---
 @st.cache_data(ttl=3600)
 def get_master_data():
+    # Attempt Yahoo Finance first for 'Today' data
+    df_sp = pd.DataFrame()
+    try:
+        df_sp = yf.download("^GSPC", start="1950-01-01", interval="1d", progress=False)
+        if not df_sp.empty:
+            if isinstance(df_sp.columns, pd.MultiIndex):
+                df_sp.columns = df_sp.columns.get_level_values(0)
+            df_sp = df_sp[['Close']].rename(columns={'Close': 'SP500'})
+    except Exception:
+        pass
+
+    # Backup: Get FRED S&P 500 if Yahoo fails
+    if df_sp.empty:
+        try:
+            s_fred_sp = fred.get_series('SP500')
+            df_sp = s_fred_sp.to_frame('SP500')
+        except: pass
+
+    # Fetch all other Macro series
     series_ids = {
-        'SP500': 'SP500_FRED',
         'WALCL': 'Fed_Assets', 'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP',
         'TB3MS': '3M_Bill', 'CPIAUCSL': 'CPI', 'M2SL': 'M2', 
         'BAMLH0A0HYM2': 'HY_Spread', 'SOFR': 'SOFR', 'TGCRRATE': 'TGCR', 
-        'VIXCLS': 'VIX', 'BOGZ1FL663067003Q': 'Margin_Proxy',
-        'USREC': 'Recessions', 'DFII10': 'Real_10Y_Yield',
-        'T10Y2Y': 'Yield_Curve_2s10s', 'DTWEXBGS': 'USD_Index'
+        'VIXCLS': 'VIX', 'DFII10': 'Real_10Y_Yield',
+        'T10Y2Y': 'Yield_Curve_2s10s', 'DTWEXBGS': 'USD_Index', 
+        'USREC': 'Recessions'
     }
     
-    updates = []
+    df_macro = pd.DataFrame()
     for s_id, name in series_ids.items():
         try:
             s = fred.get_series(s_id)
             if s is not None:
-                updates.append(s.to_frame(name))
+                df_macro[name] = s
         except: pass
 
-    # Use Outer Join to ensure daily series (like SP500) aren't cut off by monthly series (like M2)
-    df_main = pd.concat(updates, axis=1) if updates else pd.DataFrame()
-
-    try:
-        # Fetching Yahoo data specifically to get 'Today'
-        yf_df = yf.download("^GSPC", start="1950-01-01", interval="1d", progress=False)
-        if not yf_df.empty:
-            if isinstance(yf_df.columns, pd.MultiIndex):
-                yf_df.columns = yf_df.columns.get_level_values(0)
-            df_main['SP500_YF'] = yf_df['Close']
-    except: pass
-
-    if not df_main.empty:
-        df_main.index = pd.to_datetime(df_main.index).tz_localize(None)
-        # Priority 1: Yahoo (Daily), Priority 2: FRED (Daily)
-        if 'SP500_YF' in df_main.columns:
-            df_main['SP500'] = df_main['SP500_YF'].combine_first(df_main.get('SP500_FRED', pd.Series(dtype='float64')))
-        
-        # KEY FIX: Sort and forward fill monthly data (M2/CPI) so it reaches the latest S&P 500 date
-        df_main = df_main.sort_index().ffill()
-    return df_main
+    # Combine: Outer join to keep daily SP500 dates, then ffill monthly macro data
+    df_master = df_sp.join(df_macro, how='outer')
+    df_master.index = pd.to_datetime(df_master.index).tz_localize(None)
+    df_master = df_master.sort_index().ffill()
+    
+    # Clean up index: only keep days where we have an S&P 500 price
+    df_master = df_master.dropna(subset=['SP500'])
+    return df_master
 
 df = get_master_data()
 
 # --- 3. CALCULATIONS ---
 if not df.empty:
-    # Liquidity
     df['Net_Liq'] = df['Fed_Assets'] - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
     df['Net_Liq_SMA'] = df['Net_Liq'].rolling(21).mean()
     
-    # Valuation & Trend
     df['CPI_YoY'] = df['CPI'].pct_change(365) * 100
     df['M2_Real_Growth'] = (df['M2'].pct_change(365) * 100) - df['CPI_YoY']
     df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
-    # Credit/Vol
     if 'HY_Spread' in df.columns:
         df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
     if 'VIX' in df.columns:
@@ -101,36 +102,44 @@ if not df.empty:
 
 # --- 4. PERIOD SLIDER ---
 monthly_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='MS')
-# default to last 10 years up to 'today'
 start, end = st.select_slider("Select Period", options=monthly_range, value=(monthly_range[-120], monthly_range[-1]), format_func=lambda x: x.strftime('%Y'))
 p_df = df.loc[start:end]
 
 # --- 5. PLOTTING ---
-fig, axes = plt.subplots(11, 1, figsize=(14, 65))
+fig, axes = plt.subplots(11, 1, figsize=(14, 68))
 
 def format_ax(ax, title):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=12)
     ax.xaxis.set_major_locator(mdates.YearLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    
+    # Grids: Solid Horizontal, Solid Yearly Vertical, Dotted Quarterly Vertical
+    ax.grid(True, which='major', axis='y', alpha=0.4)
+    ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.4)
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=(1, 4, 7, 10)))
+    ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.2)
+    
+    # Recession Shading
+    if 'Recessions' in p_df.columns:
+        ax.fill_between(p_df.index, ax.get_ylim()[0], ax.get_ylim()[1], where=p_df['Recessions']>0, color='gray', alpha=0.2, zorder=0)
+    
     ax.tick_params(labelbottom=True, rotation=0)
-    ax.grid(True, which='both', axis='both', alpha=0.3) # Requirement: Horizontal and Vertical Grids
 
 def get_s(col):
     return p_df[col] if col in p_df.columns else pd.Series(np.zeros(len(p_df)), index=p_df.index)
 
-# 1. SP500 + SMA200 (FIXED: Added Grid explicitly)
+# 1. SP500 + SMA200
 axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
 if 'SP500_SMA200' in p_df.columns:
-    axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', linestyle='--', lw=1.5, label='200-Day SMA')
-    axes[0].legend(loc='upper left')
+    axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', linestyle='--', lw=1.5, label='200D SMA')
 axes[0].set_yscale('log')
-format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA")
+format_ax(axes[0], "1. S&P 500 (Log) vs 200-Day SMA")
 
 # 2. Allocation
 axes[1].fill_between(p_df.index, get_s('Allocation_Pct'), color='blue', alpha=0.1)
 axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5)
 axes[1].set_ylim(-5, 105)
-format_ax(axes[1], "2. Systematic Allocation %")
+format_ax(axes[1], "2. Target Allocation %")
 
 # 3. Liquidity Ribbon
 nl = get_s('Net_Liq')
@@ -138,44 +147,51 @@ ns = get_s('Net_Liq_SMA')
 axes[2].plot(p_df.index, ns, color='black', ls='--', alpha=0.5)
 axes[2].fill_between(p_df.index, nl, ns, where=nl>=ns, color='green', alpha=0.3)
 axes[2].fill_between(p_df.index, nl, ns, where=nl<ns, color='red', alpha=0.3)
-axes[2].plot(p_df.index, nl, color='black', alpha=0.2)
 format_ax(axes[2], "3. Net Liquidity Flow (21D SMA Ribbon)")
 
-# 4-11: Rest of the plots with forced grid and year labels
+# 4. M2 Real
 axes[3].axhline(0, color='red', linestyle=':')
 axes[3].plot(p_df.index, get_s('M2_Real_Growth'), color='purple')
-format_ax(axes[3], "4. Real M2 Growth (Must be > 0%)")
+format_ax(axes[3], "4. Real M2 Growth (>0% Bullish)")
 
+# 5. HY Z-Score
 if 'HY_Z' in p_df.columns:
     axes[4].axhline(0, color='red', linestyle=':')
     axes[4].plot(p_df.index, p_df['HY_Z'], color='orange')
     axes[4].invert_yaxis()
 format_ax(axes[4], "5. HY Spread Z-Score (Inverted)")
 
+# 6. Real 10Y
 axes[5].axhline(1.0, color='red', linestyle=':')
 axes[5].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue')
 format_ax(axes[5], "6. Real 10Y Yield (Threshold 1.0%)")
 
+# 7. Yield Curve
 axes[6].axhline(0, color='black')
 axes[6].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen')
 format_ax(axes[6], "7. Yield Curve (10Y-2Y)")
 
+# 8. USD
 axes[7].plot(p_df.index, get_s('USD_Index'), color='navy')
 format_ax(axes[7], "8. USD Index")
 
+# 9. VIX
 axes[8].plot(p_df.index, get_s('VIX'), color='red', lw=1, alpha=0.7)
 axes[8].plot(p_df.index, get_s('VIX_SMA'), color='black', ls='--', lw=1)
 format_ax(axes[8], "9. VIX vs 20D SMA")
 
+# 10. Funding
 axes[9].axhline(15, color='red', linestyle=':')
 axes[9].plot(p_df.index, get_s('Funding_Stress'), color='blue')
 format_ax(axes[9], "10. Funding Stress (SOFR-TGCR bps)")
 
+# 11. Leverage
 axes[10].plot(p_df.index, get_s('Leverage_Z'), color='brown')
 format_ax(axes[10], "11. Leverage Z-Score")
 
 plt.tight_layout(pad=3.0)
 st.pyplot(fig)
 
-# --- 6. DOWNLOAD ---
-st.download_button(label="📥 Download Data (CSV)", data=p_df.to_csv().encode('utf-8'), file_name='macro_data.csv')
+# --- 6. DOWNLOAD CSV BUTTON ---
+csv = p_df.to_csv().encode('utf-8')
+st.download_button(label="📥 Download Data (CSV)", data=csv, file_name='macro_monitor_data.csv', mime='text/csv')
