@@ -74,8 +74,9 @@ if not df.empty:
     # REQ: SMA 200
     df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
-    # NEW: Margin Velocity (YoY Change in Leverage Proxy)
-    df['Margin_Velocity'] = df.get('Margin_Proxy', 0).pct_change(365) * 100
+    # NEW: Daily Leverage Proxy (Non-Lagging)
+    df['Equity_M2_Ratio'] = df['SP500'] / df['M2']
+    df['Leverage_Z'] = (df['Equity_M2_Ratio'] - df['Equity_M2_Ratio'].rolling(252).mean()) / df['Equity_M2_Ratio'].rolling(252).std()
     
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
@@ -144,12 +145,12 @@ axes[7].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[7], "
 axes[8].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[8], "9. VIX")
 axes[9].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[9], "10. Funding Stress")
 
-# 11. Margin Debt Proxy (NEW)
+# 11. Daily Leverage Proxy (Equity / M2 Ratio Z-Score)
 axes[10].axhline(0, color='black', lw=1)
-axes[10].fill_between(p_df.index, get_s('Margin_Velocity'), 0, where=get_s('Margin_Velocity')>=0, color='green', alpha=0.3)
-axes[10].fill_between(p_df.index, get_s('Margin_Velocity'), 0, where=get_s('Margin_Velocity')<0, color='red', alpha=0.3)
-axes[10].plot(p_df.index, get_s('Margin_Velocity'), color='black', lw=1)
-format_ax(axes[10], "11. Margin Debt Proxy (YoY Leverage Velocity)")
+axes[10].axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone
+axes[10].plot(p_df.index, get_s('Leverage_Z'), color='firebrick', lw=1.5)
+axes[10].fill_between(p_df.index, get_s('Leverage_Z'), 0, color='firebrick', alpha=0.2)
+format_ax(axes[10], "11. Leverage Proxy (Equity/M2 Z-Score - Daily)")
 
 plt.tight_layout(pad=4.0)
 st.pyplot(fig)
