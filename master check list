@@ -26,3 +26,10 @@ Gray Recession shading on every single chart.
 Anti-Crash: If Yahoo Finance rate-limits us, the app must switch to FRED S&P 500 data (starting in 2014) instead of showing an error.
 
 DOWNLOAD CSV BUTTON
+
+
+Year labels on the bottom of every single chart.
+
+Horizontal grids on all charts (including S&P 500).
+
+Real-time sync: S&P 500 must show data up to the latest available daily close.
