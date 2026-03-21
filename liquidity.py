@@ -35,51 +35,47 @@ def get_master_data():
         if not df_sp.empty:
             if isinstance(df_sp.columns, pd.MultiIndex): df_sp.columns = df_sp.columns.get_level_values(0)
             df_sp = df_sp[['Close']].rename(columns={'Close': 'SP500'})
-            df_sp.index = pd.to_datetime(df_sp.index).date 
+            # REMOVED .date conversion to keep it as a DatetimeIndex
+            df_sp.index = pd.to_datetime(df_sp.index) 
     except: df_sp = pd.DataFrame()
 
+    # 1. Initialize df_macro first to avoid UnboundLocalError
+    df_macro = pd.DataFrame()
+
+    # 2. Fetch FINRA Monthly Excel Data
+    try:
+        finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
+        # Added engine='openpyxl' to solve the dependency error
+        df_finra = pd.read_excel(finra_url, usecols=[0, 1], skiprows=0, engine='openpyxl')
+        df_finra.columns = ['Date', 'Margin_Debt']
+        df_finra['Date'] = pd.to_datetime(df_finra['Date'])
+        df_finra.set_index('Date', inplace=True)
+        df_macro = df_finra.dropna().sort_index()
+    except Exception as e:
+        st.warning(f"FINRA Excel Load Failed: {e}. Ensure 'openpyxl' is installed.")
+
+    # 3. Fetch FRED Series
     series_ids = {
         'VIXCLS': 'VIX', 'BAMLH0A0HYM2': 'HY_Spread', 'DTWEXBGS': 'USD_Index',
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'CPIAUCSL': 'CPI',
         'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP', 'TB3MS': '3M_Bill',
         'SOFR': 'SOFR', 'TGCRRATE': 'TGCR', 'DFII10': 'Real_10Y_Yield',
-        'T10Y2Y': 'Yield_Curve_2s10s', 'USREC': 'Recessions',
-        # ADDED: Household Financial Assets (Proxy for Margin/Leverage Capacity)
-        'BOGZ1FL153064476Q': 'Margin_Proxy' 
+        'T10Y2Y': 'Yield_Curve_2s10s', 'USREC': 'Recessions'
     }
-    # NEW: Fetch FINRA Monthly Excel Data
-    try:
-        finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
-        # We read the first two columns: Month and Debit Balances (Margin Debt)
-        df_finra = pd.read_excel(finra_url, usecols=[0, 1], skiprows=0)
-        df_finra.columns = ['Date', 'Margin_Debt']
-        df_finra['Date'] = pd.to_datetime(df_finra['Date'])
-        df_finra.set_index('Date', inplace=True)
-        # Ensure it's sorted and remove any text rows
-        df_finra = df_finra.dropna().sort_index()
-        df_finra.index = df_finra.index.date
-    except Exception as e:
-        st.warning(f"FINRA Excel Load Failed: {e}")
-        df_finra = pd.DataFrame()
-
-    # Combine with your existing df_macro
-    df_macro = df_finra
     
     for s_id, name in series_ids.items():
         try:
             s = fred.get_series(s_id, observation_start=start_date)
             if s is not None:
-                s.index = pd.to_datetime(s.index).date
-                df_macro[name] = s
+                # Keep as DatetimeIndex (removed .date)
+                df_macro[name] = pd.to_datetime(s)
         except: pass
 
-    # Force the macro data to match the daily S&P 500 dates exactly
+    # 4. ALIGNMENT FIX: Force macro data to match S&P 500 dates exactly
     master_index = df_sp.index
-    df_macro_aligned = df_macro.reindex(master_index)
-    
-    # Combine and fill the gaps (forward fill)
-    df_combined = pd.concat([df_sp, df_macro_aligned], axis=1).sort_index()
+    df_combined = pd.concat([df_sp, df_macro.reindex(master_index)], axis=1).sort_index()
     df_combined = df_combined.ffill().dropna(subset=['SP500'])
+    
     return df_combined
 
 df = get_master_data()
