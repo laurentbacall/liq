@@ -57,20 +57,34 @@ def get_master_data():
     try:
         # 3. Robust FINRA Scraper
         finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
-        df_f = pd.read_excel(finra_url)
+        # Read the raw file first to find the anchor
+        raw_f = pd.read_excel(finra_url)
         
-        # Clean the Excel: find the row where data actually starts
-        start_row = df_f.index[df_f.iloc[:, 0].astype(str).str.contains('Month', na=False)].tolist()[0]
-        df_f = pd.read_excel(finra_url, skiprows=start_row + 1)
+        # FIX: Find the first row that actually contains a date (e.g., '2024-01' or 'Feb-20')
+        # This prevents the "list index out of range" error
+        mask = raw_f.iloc[:, 0].astype(str).str.contains('20', na=False)
         
-        # Standardize columns
-        df_f.columns = ['Date', 'Margin_Debt', 'Cash', 'Securities']
-        df_f['Date'] = pd.to_datetime(df_f['Date'])
-        
-        # Add to our master dictionary
-        series_dict['Margin_Debt'] = df_f.set_index('Date')['Margin_Debt'].astype(float)
+        if mask.any():
+            start_row = raw_f[mask].index[0]
+            # Reload with the correct header offset
+            df_f = pd.read_excel(finra_url, skiprows=start_row)
+            
+            # FINRA files often have 7+ columns; we only want the first two (Date, Debt)
+            df_f = df_f.iloc[:, :2] 
+            df_f.columns = ['Date', 'Margin_Debt']
+            
+            # Convert to datetime and clean
+            df_f['Date'] = pd.to_datetime(df_f['Date'], errors='coerce')
+            df_f = df_f.dropna(subset=['Date', 'Margin_Debt'])
+            
+            # Ensure Margin_Debt is numeric (removes commas/strings)
+            df_f['Margin_Debt'] = pd.to_numeric(df_f['Margin_Debt'], errors='coerce')
+            
+            series_dict['Margin_Debt'] = df_f.set_index('Date')['Margin_Debt']
+        else:
+            st.sidebar.warning("Could not find data rows in FINRA file.")
     except Exception as e:
-        st.error(f"FINRA Connection Error: {e}")
+        st.sidebar.error(f"FINRA Scraper Error: {e}")
 
     # 3. Join everything on the UNION of all dates
     # This prevents CPI from being cut off if FINRA or S&P 500 is missing data
