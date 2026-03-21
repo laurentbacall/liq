@@ -30,31 +30,33 @@ fred = Fred(api_key=api_key)
 @st.cache_data(ttl=3600)
 def get_master_data():
     start_date = "1950-01-01"
+    
+    # 1. Fetch S&P 500
     try:
         df_sp = yf.download("^GSPC", start=start_date, interval="1d", progress=False)
         if not df_sp.empty:
-            if isinstance(df_sp.columns, pd.MultiIndex): df_sp.columns = df_sp.columns.get_level_values(0)
+            if isinstance(df_sp.columns, pd.MultiIndex): 
+                df_sp.columns = df_sp.columns.get_level_values(0)
             df_sp = df_sp[['Close']].rename(columns={'Close': 'SP500'})
-            # REMOVED .date conversion to keep it as a DatetimeIndex
-            df_sp.index = pd.to_datetime(df_sp.index) 
-    except: df_sp = pd.DataFrame()
+            df_sp.index = pd.to_datetime(df_sp.index)
+    except: 
+        df_sp = pd.DataFrame(columns=['SP500'])
 
-    # 1. Initialize df_macro first to avoid UnboundLocalError
+    # 2. Initialize Macro Data
     df_macro = pd.DataFrame()
 
-    # 2. Fetch FINRA Monthly Excel Data
+    # 3. Fetch FINRA Monthly Excel Data
     try:
         finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
-        # Added engine='openpyxl' to solve the dependency error
         df_finra = pd.read_excel(finra_url, usecols=[0, 1], skiprows=0, engine='openpyxl')
         df_finra.columns = ['Date', 'Margin_Debt']
         df_finra['Date'] = pd.to_datetime(df_finra['Date'])
         df_finra.set_index('Date', inplace=True)
         df_macro = df_finra.dropna().sort_index()
     except Exception as e:
-        st.warning(f"FINRA Excel Load Failed: {e}. Ensure 'openpyxl' is installed.")
+        st.warning(f"FINRA Load Failed: {e}")
 
-    # 3. Fetch FRED Series
+    # 4. Fetch FRED Series
     series_ids = {
         'VIXCLS': 'VIX', 'BAMLH0A0HYM2': 'HY_Spread', 'DTWEXBGS': 'USD_Index',
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'CPIAUCSL': 'CPI',
@@ -67,27 +69,20 @@ def get_master_data():
         try:
             s = fred.get_series(s_id, observation_start=start_date)
             if s is not None:
-                # Keep as DatetimeIndex (removed .date)
-                df_macro[name] = pd.to_datetime(s)
+                s.index = pd.to_datetime(s.index)
+                # CRITICAL: Do NOT use pd.to_datetime(s) here. 
+                # We want the values to remain as numbers.
+                df_macro[name] = s 
         except: pass
 
-    # Ensure every date is a proper Datetime object for math
-    df_sp.index = pd.to_datetime(df_sp.index)
-    df_macro.index = pd.to_datetime(df_macro.index)
-
-    # MASTER ALIGNMENT: Combine S&P 500 and Macro data
-    # We use a 'left' join to ensure we only keep dates where we have stock prices
+    # 5. Master Alignment (Fixes the "Stretched" X-axis)
     if not df_sp.empty:
-        df_combined = df_sp.join(df_macro).sort_index()
-        # Fill the gaps (Forward Fill)
+        # Join ensures all macro data is forced onto the S&P 500 daily calendar
+        df_combined = df_sp.join(df_macro, how='left').sort_index()
         df_combined = df_combined.ffill()
-        # Final safety: remove any rows where SP500 is still missing
-        if 'SP500' in df_combined.columns:
-            df_combined = df_combined.dropna(subset=['SP500'])
     else:
-        # If Yahoo Finance failed, return the macro data alone so it doesn't crash
         df_combined = df_macro.ffill()
-
+    
     return df_combined
 
 df = get_master_data()
@@ -126,10 +121,11 @@ if not df.empty:
     df['Allocation_Pct'] = df['Total_Score'].apply(lambda s: 100 if s >= 80 else (75 if s >= 60 else (40 if s >= 40 else 0)))
 
 # --- 4. PERIOD SLIDER ---
-# Get clean Timestamps for the slider
-all_dates = pd.to_datetime(df.index)
-timeline = pd.date_range(start=all_dates.min(), end=all_dates.max(), freq='MS').tolist()
+df.index = pd.to_datetime(df.index)
+all_dates = df.index
 
+# Create a clean list of Month-Start dates
+timeline = pd.date_range(start=all_dates.min(), end=all_dates.max(), freq='MS').tolist()
 if all_dates.max() not in timeline:
     timeline.append(all_dates.max())
 
@@ -140,7 +136,7 @@ start_s, end_s = st.select_slider(
     format_func=lambda x: x.strftime('%Y-%m')
 )
 
-# Use truncate to safely slice without triggering Timestamp subtraction errors
+# Use truncate for a clean, error-free slice
 p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
@@ -155,7 +151,8 @@ def format_ax(ax, title, use_log=False):
     ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.2)
     ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.4)
     ax.grid(True, which='major', axis='y', alpha=0.4)
-    ax.set_xlim(pd.Timestamp(start_s), pd.Timestamp(end_s))
+    # FORCE ALIGNMENT: Every chart must have the same start/end points
+    ax.set_xlim(start_s, end_s)
     if use_log:
         ax.set_yscale('log')
         # REQ: 1,000 Point Intervals
