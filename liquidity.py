@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from matplotlib.ticker import FuncFormatter, LogLocator
+from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
 import yfinance as yf
 from fredapi import Fred
 
@@ -64,26 +64,20 @@ df = get_master_data()
 
 # --- 3. CALCULATIONS (REQ: Full 7-Point Scoring Logic) ---
 if not df.empty:
-    # Liquidity
     df['Net_Liq'] = df.get('Fed_Assets', 0) - (df.get('TGA', 0).fillna(0) + df.get('RRP', 0).fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(365) * 100
     df['Net_Liq_SMA'] = df['Net_Liq'].rolling(21).mean()
-    
-    # Inflation & Trend
     df['CPI_YoY'] = df.get('CPI', pd.Series(dtype=float)).pct_change(365) * 100
     df['M2_Real_Growth'] = (df.get('M2', pd.Series(dtype=float)).pct_change(365) * 100) - df['CPI_YoY']
     # REQ: SMA 200
     df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
-    # REQ: Safety check for SOFR/TGCR to prevent the KeyError
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
-    else:
-        df['Funding_Stress'] = 0 
+    else: df['Funding_Stress'] = 0 
         
     if 'HY_Spread' in df.columns:
         df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
-    
     if 'VIX' in df.columns:
         df['VIX_SMA'] = df['VIX'].rolling(20).mean()
 
@@ -115,20 +109,27 @@ def format_ax(ax, title, use_log=False):
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=(1, 4, 7, 10)))
     ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.2)
     ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.4)
-    # REQ: Horizontal Grid for all
+    
+    # FIXED: S&P 500 Horizontal Grid REQ
     ax.grid(True, which='major', axis='y', alpha=0.4)
     if use_log:
         ax.set_yscale('log')
-        ax.yaxis.set_major_locator(LogLocator(base=10.0, subs=(1.0, ), numticks=10))
+        # Logic: If looking at a wide range, use base-10 major lines. 
+        # If tight, force lines at intervals of 1, 2, 5.
+        ax.yaxis.set_major_locator(LogLocator(base=10, subs=[1.0, 2.0, 5.0], numticks=15))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.0f}'))
+        ax.yaxis.set_minor_formatter(NullFormatter())
+    else:
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.0f}'))
+        
     # REQ: Recession Shading
     if 'Recessions' in p_df.columns:
         ax.fill_between(p_df.index, 0, 1, where=p_df['Recessions']>0, color='gray', alpha=0.2, transform=ax.get_xaxis_transform(), zorder=-1)
     ax.tick_params(labelbottom=True)
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.0f}'))
 
 def get_s(col): return p_df[col] if col in p_df.columns else pd.Series(np.zeros(len(p_df)), index=p_df.index)
 
-# 1. SP500 (REQ: Log Scale + SMA 200 Red Dashed)
+# 1. SP500 (REQ: Log Scale + SMA 200 Red Dashed + Fixed Grid)
 axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
 if 'SP500_SMA200' in p_df.columns:
     axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', ls='--', lw=1.5, label='200D SMA')
