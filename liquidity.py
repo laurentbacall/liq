@@ -56,42 +56,45 @@ def get_master_data():
     except Exception as e:
         st.warning(f"FINRA Load Failed: {e}")
 
-    # 4. Fetch FRED Series
-    series_ids = {
-        'VIXCLS': 'VIX', 'BAMLH0A0HYM2': 'HY_Spread', 'DTWEXBGS': 'USD_Index',
-        'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'CPIAUCSL': 'CPI',
-        'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP', 'TB3MS': '3M_Bill',
-        'SOFR': 'SOFR', 'TGCRRATE': 'TGCR', 'DFII10': 'Real_10Y_Yield',
-        'T10Y2Y': 'Yield_Curve_2s10s', 'USREC': 'Recessions'
+    # 1. Separate your FRED series into Daily and Monthly categories
+    daily_series = {
+        'VIXCLS': 'VIX', 
+        'BAMLH0A0HYM2': 'HY_Spread', 
+        'DTWEXBGS': 'USD_Index',
+        'T10Y2Y': 'Yield_Curve_2s10s',
+        'SOFR': 'SOFR'
     }
     
-    for s_id, name in series_ids.items():
+    non_daily_series = {
+        'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'CPIAUCSL': 'CPI',
+        'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP', 'TB3MS': '3M_Bill',
+        'DFII10': 'Real_10Y_Yield', 'USREC': 'Recessions'
+    }
+
+    # 2. Add DAILY series directly to df_sp (this preserves daily movement)
+    for s_id, name in daily_series.items():
         try:
             s = fred.get_series(s_id, observation_start=start_date)
-            if s is not None:
-                s.index = pd.to_datetime(s.index)
-                # CRITICAL: Do NOT use pd.to_datetime(s) here. 
-                # We want the values to remain as numbers.
-                df_macro[name] = s 
+            s.index = pd.to_datetime(s.index)
+            df_sp[name] = s # No ffill here yet
         except: pass
-    # Ensure both dataframes have proper Datetime indices
-    df_sp.index = pd.to_datetime(df_sp.index)
-    df_macro.index = pd.to_datetime(df_macro.index)
 
-    # MASTER ALIGNMENT: 
-    # Use 'outer' join first to capture ALL daily data points from both sources
-    df_combined = df_sp.join(df_macro, how='outer').sort_index()
-
-    # Fill the gaps ONLY for series that aren't daily (like M2 or Margin Debt)
-    # Truly daily series like HY Spreads will now keep their unique daily values
-    df_combined = df_combined.ffill()
-
-    # Finally, trim the dataframe to match the S&P 500's existence
-    if 'SP500' in df_combined.columns:
-        df_combined = df_combined.dropna(subset=['SP500'])
+    # 3. Collect NON-DAILY (Monthly/Weekly) separately
+    df_slow = pd.DataFrame()
+    for s_id, name in non_daily_series.items():
+        try:
+            s = fred.get_series(s_id, observation_start=start_date)
+            df_slow[name] = s
+        except: pass
     
-    return df_combined
+    # Add FINRA to the slow group
+    df_slow = pd.concat([df_slow, df_finra], axis=1)
 
+    # 4. MASTER JOIN: Only ffill the slow data, then join to the daily data
+    df_slow = df_slow.reindex(df_sp.index).ffill()
+    df_combined = pd.concat([df_sp, df_slow], axis=1).sort_index()
+    
+    return df_combined.dropna(subset=['SP500'])
 df = get_master_data()
 
 # --- 3. CALCULATIONS ---
