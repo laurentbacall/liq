@@ -114,11 +114,10 @@ def format_ax(ax, title, use_log=False):
     ax.grid(True, which='major', axis='y', alpha=0.4)
     if use_log:
         ax.set_yscale('log')
-        # Logic: If looking at a wide range, use base-10 major lines. 
-        # If tight, force lines at intervals of 1, 2, 5.
-        ax.yaxis.set_major_locator(LogLocator(base=10, subs=[1.0, 2.0, 5.0], numticks=15))
+        # This forces a major tick (and grid line) every 1,000 units
+        from matplotlib.ticker import MultipleLocator
+        ax.yaxis.set_major_locator(MultipleLocator(1000))
         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.0f}'))
-        ax.yaxis.set_minor_formatter(NullFormatter())
     else:
         ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.0f}'))
         
