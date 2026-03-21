@@ -117,7 +117,11 @@ if not df.empty:
     df['Allocation_Pct'] = df['Total_Score'].apply(lambda s: 100 if s >= 80 else (75 if s >= 60 else (40 if s >= 40 else 0)))
 
 # --- 4. PERIOD SLIDER ---
-timeline = sorted(list(set(pd.date_range(df.index.min(), df.index.max(), freq='MS').tolist() + [df.index.max()])))
+# Convert index to Timestamps before finding min/max to match pd.date_range
+start_date = pd.Timestamp(df.index.min())
+end_date = pd.Timestamp(df.index.max())
+
+timeline = sorted(list(set(pd.date_range(start_date, end_date, freq='MS').tolist() + [end_date])))
 start_s, end_s = st.select_slider("Select Period", options=timeline, value=(timeline[-121], timeline[-1]), format_func=lambda x: x.strftime('%Y-%m'))
 p_df = df.loc[start_s:end_s]
 
