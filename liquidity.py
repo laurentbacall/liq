@@ -30,89 +30,82 @@ fred = Fred(api_key=api_key)
 @st.cache_data(ttl=3600)
 def get_master_data():
     start_date = "1950-01-01"
-    
-    # 1. Fetch S&P 500
+    # We will collect all series in a dictionary to join them all at once at the end
+    data_series = {}
+
+    # 1. S&P 500 (Master Daily Index)
     try:
         df_sp = yf.download("^GSPC", start=start_date, interval="1d", progress=False)
         if not df_sp.empty:
             if isinstance(df_sp.columns, pd.MultiIndex): 
                 df_sp.columns = df_sp.columns.get_level_values(0)
-            df_sp = df_sp[['Close']].rename(columns={'Close': 'SP500'})
-            df_sp.index = pd.to_datetime(df_sp.index)
-    except: 
-        df_sp = pd.DataFrame(columns=['SP500'])
+            data_series['SP500'] = df_sp['Close']
+    except Exception as e:
+        st.error(f"Yahoo Finance Error: {e}")
 
-    # 2. Initialize Macro Data
-    df_macro = pd.DataFrame()
+    # 2. FRED Macro Series
+    # We fetch these independently so they don't clip each other
+    fred_ids = {
+        'VIXCLS': 'VIX',
+        'BAMLH0A0HYM2': 'HY_Spread',
+        'DTWEXBGS': 'USD_Index',
+        'WALCL': 'Fed_Assets',
+        'M2SL': 'M2',
+        'CPIAUCSL': 'CPI',
+        'T10Y2Y': 'Yield_Curve_2s10s',
+        'REAINTRATREARAT10Y': 'Real_10Y_Yield'
+    }
 
-    # 3. Fetch FINRA Monthly Excel Data
+    for s_id, name in fred_ids.items():
+        try:
+            s = fred.get_series(s_id, observation_start=start_date)
+            s.index = pd.to_datetime(s.index).tz_localize(None) # Match Yahoo timezone
+            data_series[name] = s
+        except:
+            st.warning(f"Failed to fetch {name} from FRED")
+
+    # 3. FINRA Margin Debt (Monthly Excel)
     try:
         finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
-        df_finra = pd.read_excel(finra_url, usecols=[0, 1], skiprows=0, engine='openpyxl')
+        df_finra = pd.read_excel(finra_url, engine='openpyxl')
+        # Standardize the FINRA cleanup (Skip headers, pick first 2 cols)
+        df_finra = df_finra.iloc[1:].copy() 
         df_finra.columns = ['Date', 'Margin_Debt']
         df_finra['Date'] = pd.to_datetime(df_finra['Date'])
         df_finra.set_index('Date', inplace=True)
-        df_macro = df_finra.dropna().sort_index()
-    except Exception as e:
-        st.warning(f"FINRA Load Failed: {e}")
+        # Ensure it's a Series and timezone-naive
+        s_margin = df_finra['Margin_Debt'].dropna().tz_localize(None)
+        data_series['Margin_Debt'] = s_margin
+    except:
+        st.warning("Failed to fetch FINRA Margin Debt")
 
-    # 1. Separate your FRED series into Daily and Monthly categories
-    daily_series = {
-        'VIXCLS': 'VIX', 
-        'BAMLH0A0HYM2': 'HY_Spread', 
-        'DTWEXBGS': 'USD_Index',
-        'T10Y2Y': 'Yield_Curve_2s10s',
-        'SOFR': 'SOFR'
-    }
+    # 4. THE FIX: CONCATENATE ALL (Union of all indices)
+    # This prevents CPI from being clipped by FINRA or VIX by SP500
+    df = pd.concat(data_series, axis=1)
+    df = df.sort_index()
     
-    non_daily_series = {
-        'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'CPIAUCSL': 'CPI',
-        'WTREGEN': 'TGA', 'RRPONTSYD': 'RRP', 'TB3MS': '3M_Bill',
-        'DFII10': 'Real_10Y_Yield', 'USREC': 'Recessions'
-    }
+    # 5. Fill gaps (Forward fill monthly data to daily)
+    df = df.ffill()
 
-    # 2. Add DAILY series directly to df_sp (this preserves daily movement)
-    for s_id, name in daily_series.items():
-        try:
-            s = fred.get_series(s_id, observation_start=start_date)
-            s.index = pd.to_datetime(s.index)
-            df_sp[name] = s # No ffill here yet
-        except: pass
-
-    # 3. Collect NON-DAILY (Monthly/Weekly) separately
-    df_slow = pd.DataFrame()
-    for s_id, name in non_daily_series.items():
-        try:
-            s = fred.get_series(s_id, observation_start=start_date)
-            df_slow[name] = s
-        except: pass
+    # 6. Calculations (Use the unified dataframe)
+    if 'CPI' in df.columns:
+        # YoY CPI for growth calc
+        df['CPI_YoY'] = df['CPI'].pct_change(365)
     
-    # Add FINRA to the slow group
-    df_slow = pd.concat([df_slow, df_finra], axis=1)
+    if 'M2' in df.columns and 'CPI' in df.columns:
+        # Real M2 Growth calculation
+        m2_growth = df['M2'].pct_change(365)
+        df['M2_Real_Growth'] = m2_growth - df['CPI_YoY'].fillna(0)
 
-# 4. MASTER JOIN: Maintain Daily Granularity
-    # Ensure df_sp has the column name we expect
-    if not df_sp.empty:
-        # If Yahoo returns a MultiIndex, flatten it
-        if isinstance(df_sp.columns, pd.MultiIndex):
-            df_sp.columns = df_sp.columns.get_level_values(0)
-        if 'Close' in df_sp.columns:
-            df_sp = df_sp[['Close']].rename(columns={'Close': 'SP500'})
-    
-    # Reindex the slow data (Monthly/Weekly) to the daily SP500 index and fill gaps
-    if not df_sp.empty:
-        df_slow_filled = df_slow.reindex(df_sp.index).ffill()
-        # Combine everything
-        df_combined = pd.concat([df_sp, df_slow_filled], axis=1).sort_index()
-    else:
-        # Fallback if Yahoo Finance fails
-        df_combined = df_slow.ffill()
+    # System Allocation Score (Simplified logic)
+    # We define liquidity as (Fed Assets / CPI) + (Margin Debt / CPI)
+    if all(col in df.columns for col in ['Fed_Assets', 'Margin_Debt', 'CPI']):
+        liq_index = (df['Fed_Assets'] + df['Margin_Debt']) / df['CPI']
+        df['Allocation_Pct'] = (liq_index / liq_index.rolling(window=252*2).max()) * 100
 
-    # 5. Safety check before returning
-    if 'SP500' in df_combined.columns:
-        return df_combined.dropna(subset=['SP500'])
-    else:
-        return df_combined
+    # Finally, filter to dates where we have S&P 500 price
+    return df.dropna(subset=['SP500'])
+
 
 df = get_master_data()
 
