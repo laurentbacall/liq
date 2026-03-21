@@ -47,8 +47,24 @@ def get_master_data():
         # ADDED: Household Financial Assets (Proxy for Margin/Leverage Capacity)
         'BOGZ1FL153064476Q': 'Margin_Proxy' 
     }
+    # NEW: Fetch FINRA Monthly Excel Data
+    try:
+        finra_url = "https://www.finra.org/sites/default/files/2021-03/margin-statistics.xlsx"
+        # We read the first two columns: Month and Debit Balances (Margin Debt)
+        df_finra = pd.read_excel(finra_url, usecols=[0, 1], skiprows=0)
+        df_finra.columns = ['Date', 'Margin_Debt']
+        df_finra['Date'] = pd.to_datetime(df_finra['Date'])
+        df_finra.set_index('Date', inplace=True)
+        # Ensure it's sorted and remove any text rows
+        df_finra = df_finra.dropna().sort_index()
+        df_finra.index = df_finra.index.date
+    except Exception as e:
+        st.warning(f"FINRA Excel Load Failed: {e}")
+        df_finra = pd.DataFrame()
+
+    # Combine with your existing df_macro
+    df_macro = pd.concat([df_macro, df_finra], axis=1)
     
-    df_macro = pd.DataFrame()
     for s_id, name in series_ids.items():
         try:
             s = fred.get_series(s_id, observation_start=start_date)
@@ -74,9 +90,8 @@ if not df.empty:
     # REQ: SMA 200
     df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
-    # NEW: Daily Leverage Proxy (Non-Lagging)
-    df['Equity_M2_Ratio'] = df['SP500'] / df['M2']
-    df['Leverage_Z'] = (df['Equity_M2_Ratio'] - df['Equity_M2_Ratio'].rolling(252).mean()) / df['Equity_M2_Ratio'].rolling(252).std()
+    # Calculation: YoY Growth of the FINRA Margin Debt
+    df['Margin_Velocity'] = df['Margin_Debt'].pct_change(365) * 100
     
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
@@ -107,6 +122,7 @@ fig, axes = plt.subplots(11, 1, figsize=(14, 75))
 
 def format_ax(ax, title, use_log=False):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=14)
+    ax.set_xlim(p_df.index.min(), p_df.index.max()) # <--- LOCK THE SCALE
     ax.xaxis.set_major_locator(mdates.YearLocator())
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
     ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=(1, 4, 7, 10)))
@@ -150,7 +166,7 @@ axes[10].axhline(0, color='black', lw=1)
 axes[10].axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone
 axes[10].plot(p_df.index, get_s('Leverage_Z'), color='firebrick', lw=1.5)
 axes[10].fill_between(p_df.index, get_s('Leverage_Z'), 0, color='firebrick', alpha=0.2)
-format_ax(axes[10], "11. Leverage Proxy (Equity/M2 Z-Score - Daily)")
+format_ax(axes[10], "11. FINRA debt velocity")
 
 plt.tight_layout(pad=4.0)
 st.pyplot(fig)
