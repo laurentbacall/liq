@@ -75,13 +75,19 @@ def get_master_data():
     df_sp.index = pd.to_datetime(df_sp.index)
     df_macro.index = pd.to_datetime(df_macro.index)
 
-    # MASTER ALIGNMENT: Force macro data to match SP500 daily slots
-    master_index = df_sp.index
-    df_combined = pd.concat([df_sp, df_macro.reindex(master_index)], axis=1).sort_index()
-    
-    # Fill the daily gaps for the monthly/weekly data
-    df_combined = df_combined.ffill().dropna(subset=['SP500'])
-    
+    # MASTER ALIGNMENT: Combine S&P 500 and Macro data
+    # We use a 'left' join to ensure we only keep dates where we have stock prices
+    if not df_sp.empty:
+        df_combined = df_sp.join(df_macro).sort_index()
+        # Fill the gaps (Forward Fill)
+        df_combined = df_combined.ffill()
+        # Final safety: remove any rows where SP500 is still missing
+        if 'SP500' in df_combined.columns:
+            df_combined = df_combined.dropna(subset=['SP500'])
+    else:
+        # If Yahoo Finance failed, return the macro data alone so it doesn't crash
+        df_combined = df_macro.ffill()
+
     return df_combined
 
 df = get_master_data()
