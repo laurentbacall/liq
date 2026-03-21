@@ -71,10 +71,18 @@ def get_master_data():
                 df_macro[name] = pd.to_datetime(s)
         except: pass
 
-    # 4. ALIGNMENT FIX: Force macro data to match S&P 500 dates exactly
+    # Ensure every single date is a proper Datetime object
+    df_sp.index = pd.to_datetime(df_sp.index)
+    df_macro.index = pd.to_datetime(df_macro.index)
+
+    # MASTER ALIGNMENT: Force macro data to match SP500 daily slots
     master_index = df_sp.index
     df_combined = pd.concat([df_sp, df_macro.reindex(master_index)], axis=1).sort_index()
+    
+    # Fill the daily gaps for the monthly/weekly data
     df_combined = df_combined.ffill().dropna(subset=['SP500'])
+    
+    return df_combined
     
     return df_combined
 
@@ -91,7 +99,8 @@ if not df.empty:
     df['SP500_SMA200'] = df['SP500'].rolling(200).mean()
     
     # Calculation: YoY Growth of the FINRA Margin Debt
-    df['Margin_Velocity'] = df['Margin_Debt'].pct_change(365) * 100
+    # This works now because the index is strictly Datetime
+    df['Margin_Velocity'] = df['Margin_Debt'].pct_change(periods=252) * 100
     
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
@@ -113,13 +122,19 @@ if not df.empty:
     df['Allocation_Pct'] = df['Total_Score'].apply(lambda s: 100 if s >= 80 else (75 if s >= 60 else (40 if s >= 40 else 0)))
 
 # --- 4. PERIOD SLIDER ---
-# Convert index to Timestamps before finding min/max to match pd.date_range
-start_date = pd.Timestamp(df.index.min())
-end_date = pd.Timestamp(df.index.max())
+# Get clean Timestamps for the slider
+all_dates = pd.to_datetime(df.index)
+timeline = pd.date_range(start=all_dates.min(), end=all_dates.max(), freq='MS').tolist()
 
-timeline = sorted(list(set(pd.date_range(start_date, end_date, freq='MS').tolist() + [end_date])))
-start_s, end_s = st.select_slider("Select Period", options=timeline, value=(timeline[-121], timeline[-1]), format_func=lambda x: x.strftime('%Y-%m'))
-p_df = df.loc[start_s:end_s]
+if all_dates.max() not in timeline:
+    timeline.append(all_dates.max())
+
+start_s, end_s = st.select_slider(
+    "Select Period", 
+    options=timeline, 
+    value=(timeline[-121], timeline[-1]), 
+    format_func=lambda x: x.strftime('%Y-%m')
+)
 
 # --- 5. PLOTTING ---
 fig, axes = plt.subplots(11, 1, figsize=(14, 75))
@@ -133,7 +148,7 @@ def format_ax(ax, title, use_log=False):
     ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.2)
     ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.4)
     ax.grid(True, which='major', axis='y', alpha=0.4)
-    
+    ax.set_xlim(pd.Timestamp(start_s), pd.Timestamp(end_s))
     if use_log:
         ax.set_yscale('log')
         # REQ: 1,000 Point Intervals
