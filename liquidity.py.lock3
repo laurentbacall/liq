@@ -27,50 +27,22 @@ if not api_key:
 fred = Fred(api_key=api_key)
 
 # --- 2. DATA ENGINE ---
-@st.cache_data(ttl=7200)
+@st.cache_data(ttl=3600)
 def get_master_data():
-    start_date = "1995-01-01"
+    start_date = "1950-01-01"
     series_dict = {}
-    csv_file = "historical_history.csv" 
-    tickers = ["^GSPC", "^VIX", "^W5000"]
-    mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000"}
 
+    # 1. Yahoo Finance S&P 500
     try:
-        if os.path.exists(csv_file):
-            # 1. Load the local CSV (assumes Tickers are columns)
-            df_local = pd.read_csv(csv_file, index_col=0, parse_dates=True)
-            last_date = df_local.index.max()
-            fetch_start = (last_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
-            
-            # 2. Fetch only the missing days
-            new_data = yf.download(tickers, start=fetch_start, progress=False)
-            
-            if not new_data.empty:
-                # If multiple tickers, YF returns a MultiIndex. Grab 'Close'
-                if isinstance(new_data.columns, pd.MultiIndex):
-                    new_data = new_data['Close']
-                
-                df_combined = pd.concat([df_local, new_data]).sort_index()
-                # Remove duplicates if the overlap logic catches the same day
-                df_combined = df_combined[~df_combined.index.duplicated(keep='last')]
-            else:
-                df_combined = df_local
-        else:
-            # Fallback: Initial full download if CSV is missing
-            df_full = yf.download(tickers, start=start_date, progress=False)
-            df_combined = df_full['Close'] if isinstance(df_full.columns, pd.MultiIndex) else df_full
-
-        # 3. Map the combined data into your series_dict
-        for yf_sym, clean_name in mapping.items():
-            if yf_sym in df_combined.columns:
-                series_dict[clean_name] = df_combined[yf_sym]
-
-    except Exception as e:
-        st.sidebar.error(f"Data Sync Error: {e}")
+        sp = yf.download("^GSPC", start=start_date, interval="1d", progress=False)
+        if not sp.empty:
+            if isinstance(sp.columns, pd.MultiIndex): sp.columns = sp.columns.get_level_values(0)
+            series_dict['SP500'] = sp['Close']
+    except: pass
 
     # 2. FRED Series (Fetch everything individually)
     fred_ids = {
-        'BAMLH0A0HYM2': 'HY_Spread', 'CPIAUCSL': 'CPI',
+        'VIXCLS': 'VIX', 'BAMLH0A0HYM2': 'HY_Spread', 'CPIAUCSL': 'CPI',
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'WTREGEN': 'TGA', 
         'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s',
         'DFII10': 'Real_10Y_Yield','SOFR': 'SOFR','TGCRRATE': 'TGCR'
