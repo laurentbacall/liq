@@ -251,11 +251,39 @@ if 'SP500_SMA200' in p_df.columns:
     axes[0].legend(loc='upper left')
 format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
 
-# 2-10 
+# 2-4 
 axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5); format_ax(axes[1], "2. System Allocation %")
 axes[2].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[2], "3. Net Liquidity Path")
 axes[3].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[3], "4. Real M2 Growth")
-axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
+
+# axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
+
+# 5. HY Spread (Inverted) + HY Z-Score
+ax4 = axes[4]
+ax4_twin = ax4.twinx()  # Create secondary axis
+
+# Plot HY Spread (Primary - Left Axis)
+ax4.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
+ax4.invert_yaxis() 
+
+# Plot HY Z-Score (Secondary - Right Axis)
+# We use a semi-transparent fill or a dashed line to keep it readable
+ax4_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, ls='--', alpha=0.5, label='HY Z-Score')
+ax4_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
+
+# Formatting
+format_ax(ax4, "5. HY Spread (Inverted) & HY Z-Score")
+
+# Adjust right-side labels for the twin axis
+ax4_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
+ax4_twin.tick_params(axis='y', labelsize=9)
+
+# Combine legends from both axes
+lines, labels = ax4.get_legend_handles_labels()
+lines2, labels2 = ax4_twin.get_legend_handles_labels()
+ax4.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
+
+# 6-10
 axes[5].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[5], "6. Real 10Y Yield")
 axes[6].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[6], "7. Yield Curve")
 axes[7].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[7], "8. USD Index")
