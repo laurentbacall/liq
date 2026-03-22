@@ -40,31 +40,38 @@ def get_master_data():
     df_combined = pd.DataFrame()
 
     try:
-        if os.path.exists(csv_file):
-            # We tell pandas that rows 0 and 1 are headers (Price and Ticker)
+        	if os.path.exists(csv_file):
+            # 1. Load the local CSV with Multi-headers
             df_local = pd.read_csv(csv_file, header=[0, 1], index_col=0, parse_dates=True)
             
-            # We drop the 'Price' level and just keep the Ticker names (^GSPC, ^VIX, etc.)
-            df_local.columns = df_local.columns.get_level_values(1)
+            # 2. IMPORTANT: Keep only the 'Close' prices (removes High/Low/Open/Volume)
+            # This turns the 15 columns back into the 3 we need (^GSPC, ^VIX, ^W5000)
+            if 'Close' in df_local.columns.levels[0]:
+                df_local = df_local['Close']
         
-            # Standardize the index: remove any non-date rows (like the 'Date' word if it slipped in)
-            df_local = df_local[pd.to_numeric(df_local.index, errors='coerce').isna()] 
+            # 3. Clean the index (removes the "Date" text row and NaNs)
             df_local.index = pd.to_datetime(df_local.index, errors='coerce')
-            df_local = df_local.dropna(how='all') # Clean up empty rows
-            last_date = df_combined.index.max()
+            df_local = df_local[df_local.index.notnull()].sort_index()
             
-            # Only try to update if we aren't already blocked
+            # 4. Initialize our master dataframe with the local data
+            df_combined = df_local 
+            
+            # 5. Identify the last date to fetch the 'missing' days from Yahoo
+            last_date = df_combined.index.max() # Fixed: used df_combined instead of empty df
             fetch_start = (last_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
             
             try:
                 new_data = yf.download(tickers, start=fetch_start, progress=False)
                 if not new_data.empty:
+                    # Flatten YF MultiIndex to get 'Close'
                     if isinstance(new_data.columns, pd.MultiIndex):
                         new_data = new_data['Close']
-                    df_combined = pd.concat([df_local, new_data]).sort_index()
+                    
+                    # Merge local + new
+                    df_combined = pd.concat([df_combined, new_data]).sort_index()
                     df_combined = df_combined[~df_combined.index.duplicated(keep='last')]
             except Exception:
-                st.sidebar.warning("Live update failed (Rate Limit). Using cached CSV data.")
+                st.sidebar.warning("YF Rate Limit: Using historical CSV data only.")
         else:
             # Full download fallback
             df_combined = yf.download(tickers, start=start_date, progress=False)
