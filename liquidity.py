@@ -282,64 +282,65 @@ format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
 
 # 2-4 
 axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5); format_ax(axes[1], "2. System Allocation %")
-axes[2].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[2], "3. Net Liquidity Path")
-axes[3].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[3], "4. Real M2 Growth")
+
 
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
 # 5. HY Spread (Inverted) + HY Z-Score
-ax4 = axes[4]
-ax4_twin = ax4.twinx()  # Create secondary axis
+ax2 = axes[2]
+ax2_twin = ax2.twinx()  # Create secondary axis
 
 # Plot HY Spread (Primary - Left Axis)
-ax4.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
-ax4.invert_yaxis() 
+ax2.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
+ax2.invert_yaxis() 
 
 # Plot HY Z-Score (Secondary - Right Axis)
 # We use a semi-transparent fill or a dashed line to keep it readable
-ax4_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, ls='--', alpha=0.5, label='HY Z-Score')
-ax4_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
+ax2_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, ls='--', alpha=0.5, label='HY Z-Score')
+ax2_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
 
 # Formatting
-format_ax(ax4, "5. HY Spread (Inverted) & HY Z-Score")
+format_ax(ax2, "5. HY Spread (Inverted) & HY Z-Score")
 
 # Adjust right-side labels for the twin axis
-ax4_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
-ax4_twin.tick_params(axis='y', labelsize=9)
+ax2_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
+ax2_twin.tick_params(axis='y', labelsize=9)
 
 # Combine legends from both axes
-lines, labels = ax4.get_legend_handles_labels()
-lines2, labels2 = ax4_twin.get_legend_handles_labels()
-ax4.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
+lines, labels = ax2.get_legend_handles_labels()
+lines2, labels2 = ax2_twin.get_legend_handles_labels()
+ax2.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # 11. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score
-ax5 = axes[5]
-ax5_twin = ax5.twinx()
+ax3 = axes[5]
+ax3_twin = ax3.twinx()
 
 # Plot Raw Ratio (Left Axis - Purple)
-ax5.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
-ax5.set_ylabel('Raw Ratio', color='purple', fontsize=10)
+ax3.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+ax3.set_ylabel('Raw Ratio', color='purple', fontsize=10)
 
 # Plot Z-Score (Right Axis - Firebrick)
-ax5_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
-ax5_twin.axhline(0, color='black', lw=1, alpha=0.5)
-ax5_twin.axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone (+2 Sigma)
-ax5_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
+ax3_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
+ax3_twin.axhline(0, color='black', lw=1, alpha=0.5)
+ax3_twin.axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone (+2 Sigma)
+ax3_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
 
 # Shading for high-leverage "Danger Zones"
-ax5_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
+ax3_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
                        where=(get_s('Margin_Ratio_Z') >= 2), 
                        color='red', alpha=0.2, interpolate=True)
 
-format_ax(ax5, "6. Leverage Proxy (Margin Debt / Wilshire 5000)")
+format_ax(ax3, "6. Leverage Proxy (Margin Debt / Wilshire 5000)")
 
 # Combine Legends
-lines, labels = ax5.get_legend_handles_labels()
-lines2, labels2 = ax5_twin.get_legend_handles_labels()
-ax5.legend(lines + lines2, labels + labels2, loc='upper left')
+lines, labels = ax3.get_legend_handles_labels()
+lines2, labels2 = ax3_twin.get_legend_handles_labels()
+ax3.legend(lines + lines2, labels + labels2, loc='upper left')
 
 
 # 6-10
+axes[4].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
+axes[5].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[5], "6. Real M2 Growth")
 axes[6].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[6], "7. Real 10Y Yield")
 axes[7].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[7], "8. Yield Curve")
 axes[8].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[8], "9. USD Index")
