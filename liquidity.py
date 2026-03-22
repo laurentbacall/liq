@@ -151,6 +151,40 @@ def get_master_data():
 
 df = get_master_data()
 
+def calculate_bear_markets(series):
+    """Detects bear market periods (Peak to 20% Recovery) from a price series."""
+    df_bear = pd.DataFrame({'Price': series}).dropna()
+    df_bear['Rolling_Peak'] = df_bear['Price'].cummax()
+    df_bear['Drawdown'] = (df_bear['Price'] - df_bear['Rolling_Peak']) / df_bear['Rolling_Peak']
+    
+    episodes = []
+    in_bear = False
+    peak_date = None
+    
+    for date, row in df_bear.iterrows():
+        # ENTRY: Hit -20% drawdown
+        if not in_bear and row['Drawdown'] <= -0.20:
+            in_bear = True
+            # Find the actual peak date leading to this crash
+            data_up_to_now = df_bear.loc[:date]
+            peak_date = data_up_to_now[data_up_to_now['Price'] == row['Rolling_Peak']].index[-1]
+            
+        # EXIT: Recover +20% from the trough
+        if in_bear:
+            current_period = df_bear.loc[peak_date:date]
+            trough_price = current_period['Price'].min()
+            recovery_pct = (row['Price'] - trough_price) / trough_price
+            
+            if recovery_pct >= 0.20:
+                episodes.append((peak_date, date))
+                in_bear = False
+                
+    # Handle an ongoing bear market
+    if in_bear:
+        episodes.append((peak_date, df_bear.index[-1]))
+        
+    return episodes
+
 # --- 3. CALCULATIONS ---
 if not df.empty:
     # SAFETY: Ensure all required columns exist as Series (prevents AttributeError)
@@ -201,7 +235,11 @@ if not df.empty:
         df['Margin_Velocity'] = df['Margin_Debt'].pct_change(periods=252) * 100
     else:
         df['Margin_Velocity'] = 0
-
+    # Calculate Bear Market Episodes
+    if 'SP500' in df.columns:
+        bear_episodes = calculate_bear_markets(df['SP500'])
+    else:
+        bear_episodes = []
 # --- 3. CALCULATIONS & SCORING ---
 if not df.empty:
     # 1. Ensure all columns exist as Series to prevent the 'bool' AttributeError
@@ -349,5 +387,18 @@ axes[10].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes
 
 
 plt.tight_layout(pad=4.0)
+
+# --- 4. UNIVERSAL BEAR MARKET SHADING ---
+# We loop through every subplot and apply the shading
+for i, ax in enumerate(axes):
+    for start, end in bear_episodes:
+        # Only shade if the dates are within the current plot's view
+        ax.axvspan(start, end, color='gray', alpha=0.15, label='Bear Market' if i == 0 else "")
+
+# Add a single legend entry for the shading on the first graph
+if bear_episodes:
+    axes[0].legend(loc='upper left', fontsize=8)
+
+
 st.pyplot(fig)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
