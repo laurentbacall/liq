@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 import yfinance as yf
+import os
 from fredapi import Fred
 
 # --- 1. CONFIGURATION ---
