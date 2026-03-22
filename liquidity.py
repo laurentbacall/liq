@@ -36,38 +36,39 @@ def get_master_data():
     tickers = ["^GSPC", "^VIX", "^W5000"]
     mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000"}
 
+    # Initialize df_combined as empty so we have a fallback
+    df_combined = pd.DataFrame()
+
     try:
         if os.path.exists(csv_file):
-            # 1. Load the local CSV (assumes Tickers are columns)
-            df_local = pd.read_csv(csv_file, index_col=0, parse_dates=True)
-            last_date = df_local.index.max()
+            df_combined = pd.read_csv(csv_file, index_col=0, parse_dates=True)
+            last_date = df_combined.index.max()
+            
+            # Only try to update if we aren't already blocked
             fetch_start = (last_date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
             
-            # 2. Fetch only the missing days
-            new_data = yf.download(tickers, start=fetch_start, progress=False)
-            
-            if not new_data.empty:
-                # If multiple tickers, YF returns a MultiIndex. Grab 'Close'
-                if isinstance(new_data.columns, pd.MultiIndex):
-                    new_data = new_data['Close']
-                
-                df_combined = pd.concat([df_local, new_data]).sort_index()
-                # Remove duplicates if the overlap logic catches the same day
-                df_combined = df_combined[~df_combined.index.duplicated(keep='last')]
-            else:
-                df_combined = df_local
+            try:
+                new_data = yf.download(tickers, start=fetch_start, progress=False)
+                if not new_data.empty:
+                    if isinstance(new_data.columns, pd.MultiIndex):
+                        new_data = new_data['Close']
+                    df_combined = pd.concat([df_combined, new_data]).sort_index()
+                    df_combined = df_combined[~df_combined.index.duplicated(keep='last')]
+            except Exception:
+                st.sidebar.warning("Live update failed (Rate Limit). Using cached CSV data.")
         else:
-            # Fallback: Initial full download if CSV is missing
-            df_full = yf.download(tickers, start=start_date, progress=False)
-            df_combined = df_full['Close'] if isinstance(df_full.columns, pd.MultiIndex) else df_full
+            # Full download fallback
+            df_combined = yf.download(tickers, start=start_date, progress=False)
+            if isinstance(df_combined.columns, pd.MultiIndex):
+                df_combined = df_combined['Close']
 
-        # 3. Map the combined data into your series_dict
+        # Map to series_dict
         for yf_sym, clean_name in mapping.items():
             if yf_sym in df_combined.columns:
                 series_dict[clean_name] = df_combined[yf_sym]
 
     except Exception as e:
-        st.sidebar.error(f"Data Sync Error: {e}")
+        st.sidebar.error(f"Critical Data Error: {e}")
 
     # 2. FRED Series (Fetch everything individually)
     fred_ids = {
@@ -127,8 +128,12 @@ def get_master_data():
     if 'SP500' in df.columns:
         df = df.dropna(subset=['SP500'])
     
+    # Final Safety Check: Join and return
+    if not series_dict:
+        return pd.DataFrame() # Return empty if everything failed
+        
+    df = pd.concat(series_dict, axis=1).sort_index().ffill()
     return df
-
 
 df = get_master_data()
 
