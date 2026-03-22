@@ -32,7 +32,7 @@ fred = Fred(api_key=api_key)
 def get_master_data():
     start_date = "1995-01-01"
     series_dict = {}
-    csv_file = "historical_history.csv" 
+    csv_file = "historical_data.csv" 
     tickers = ["^GSPC", "^VIX", "^W5000"]
     mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000"}
 
