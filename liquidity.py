@@ -157,15 +157,25 @@ if not df.empty:
     # REQ: SMA 200
     df['SP500_SMA200'] = df['SP500'].rolling(window=200).mean()
     
-    # Calculation: YoY Growth of the FINRA Margin Debt
-    # This works now because the index is strictly Datetime
-    df['Margin_Velocity'] = df['Margin_Debt'].pct_change(periods=252) * 100
+    # Calculation: Margin Debt to Market Cap Ratio
+    if 'Margin_Debt' in df.columns and 'W5000' in df.columns:
+        # We calculate the raw ratio
+        df['Margin_Market_Ratio'] = df['Margin_Debt'] / df['W5000']
+        
+        # Calculate a 3-year rolling Z-Score (756 trading days)
+        # This shows how "stretched" leverage is relative to recent history
+        rolling_mean = df['Margin_Market_Ratio'].rolling(window=756).mean()
+        rolling_std = df['Margin_Market_Ratio'].rolling(window=756).std()
+        df['Margin_Ratio_Z'] = (df['Margin_Market_Ratio'] - rolling_mean) / rolling_std
+    else:
+        df['Margin_Market_Ratio'] = 0
+        df['Margin_Ratio_Z'] = 0
     
     if 'SOFR' in df.columns and 'TGCR' in df.columns:
         df['Funding_Stress'] = (df['SOFR'] - df['TGCR']).interpolate().ffill() * 100
     else: df['Funding_Stress'] = 0 
         
-    df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(1095).mean()) / df['HY_Spread'].rolling(1095).std()
+    df['HY_Z'] = (df['HY_Spread'] - df['HY_Spread'].rolling(756).mean()) / df['HY_Spread'].rolling(756).std()
     df['VIX_SMA'] = df['VIX'].rolling(20).mean()
     # 2. FINRA Debt Velocity
     if 'Margin_Debt' in df.columns:
@@ -290,12 +300,31 @@ axes[7].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[7], "
 axes[8].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[8], "9. VIX")
 axes[9].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[9], "10. Funding Stress")
 
-# 11. Daily Leverage Proxy (Equity / M2 Ratio Z-Score)
-axes[10].axhline(0, color='black', lw=1)
-axes[10].axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone
-axes[10].plot(p_df.index, get_s('Margin_Velocity'), color='firebrick', lw=1.5)
-axes[10].fill_between(p_df.index, get_s('Margin_Velocity'), 0, color='firebrick', alpha=0.2)
-format_ax(axes[10], "11. FINRA debt velocity")
+# 11. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score
+ax10 = axes[10]
+ax10_twin = ax10.twinx()
+
+# Plot Raw Ratio (Left Axis - Purple)
+ax10.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+ax10.set_ylabel('Raw Ratio', color='purple', fontsize=10)
+
+# Plot Z-Score (Right Axis - Firebrick)
+ax10_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
+ax10_twin.axhline(0, color='black', lw=1, alpha=0.5)
+ax10_twin.axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone (+2 Sigma)
+ax10_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
+
+# Shading for high-leverage "Danger Zones"
+ax10_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
+                       where=(get_s('Margin_Ratio_Z') >= 2), 
+                       color='red', alpha=0.2, interpolate=True)
+
+format_ax(ax10, "11. Leverage Proxy (Margin Debt / Wilshire 5000)")
+
+# Combine Legends
+lines, labels = ax10.get_legend_handles_labels()
+lines2, labels2 = ax10_twin.get_legend_handles_labels()
+ax10.legend(lines + lines2, labels + labels2, loc='upper left')
 
 plt.tight_layout(pad=4.0)
 st.pyplot(fig)
