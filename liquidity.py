@@ -41,7 +41,16 @@ def get_master_data():
 
     try:
         if os.path.exists(csv_file):
-            df_combined = pd.read_csv(csv_file, index_col=0, parse_dates=True)
+            # We tell pandas that rows 0 and 1 are headers (Price and Ticker)
+            df_local = pd.read_csv(csv_file, header=[0, 1], index_col=0, parse_dates=True)
+            
+            # We drop the 'Price' level and just keep the Ticker names (^GSPC, ^VIX, etc.)
+            df_local.columns = df_local.columns.get_level_values(1)
+        
+            # Standardize the index: remove any non-date rows (like the 'Date' word if it slipped in)
+            df_local = df_local[pd.to_numeric(df_local.index, errors='coerce').isna()] 
+            df_local.index = pd.to_datetime(df_local.index, errors='coerce')
+            df_local = df_local.dropna(how='all') # Clean up empty rows
             last_date = df_combined.index.max()
             
             # Only try to update if we aren't already blocked
@@ -52,7 +61,7 @@ def get_master_data():
                 if not new_data.empty:
                     if isinstance(new_data.columns, pd.MultiIndex):
                         new_data = new_data['Close']
-                    df_combined = pd.concat([df_combined, new_data]).sort_index()
+                    df_combined = pd.concat([df_local, new_data]).sort_index()
                     df_combined = df_combined[~df_combined.index.duplicated(keep='last')]
             except Exception:
                 st.sidebar.warning("Live update failed (Rate Limit). Using cached CSV data.")
