@@ -312,7 +312,7 @@ lines2, labels2 = ax2_twin.get_legend_handles_labels()
 ax2.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # 11. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score
-ax3 = axes[5]
+ax3 = axes[3]
 ax3_twin = ax3.twinx()
 
 # Plot Raw Ratio (Left Axis - Purple)
