@@ -148,11 +148,11 @@ if not df.empty:
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(periods=252) * 100
     
     # CPI YoY calculation (for real growth)
-    df['CPI_YoY'] = df['CPI'].pct_change(periods=365) * 100
+    df['CPI_YoY'] = df['CPI'].pct_change(periods=252) * 100
     
     # Real M2 Growth
     if 'M2' in df.columns:
-        m2_growth = df['M2'].pct_change(periods=365) * 100
+        m2_growth = df['M2'].pct_change(periods=252) * 100
         df['M2_Real_Growth'] = m2_growth - df['CPI_YoY'].fillna(0)
     # REQ: SMA 200
     df['SP500_SMA200'] = df['SP500'].rolling(window=200).mean()
