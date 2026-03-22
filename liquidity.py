@@ -150,43 +150,53 @@ def get_master_data():
     return df
 
 def calculate_bear_markets(series):
-    """Returns periods from absolute Peak to absolute Trough only."""
+    """Identifies Peak-to-Trough periods without overlapping layers."""
     df_bear = pd.DataFrame({'Price': series}).dropna()
-    df_bear['Rolling_Peak'] = df_bear['Price'].cummax()
-    df_bear['Drawdown'] = (df_bear['Price'] - df_bear['Rolling_Peak']) / df_bear['Rolling_Peak']
-    
     episodes = []
-    in_bear = False
-    peak_date = None
-    trough_price = float('inf')
-    trough_date = None
+    search_start_idx = 0
     
-    for date, row in df_bear.iterrows():
-        # ENTRY: Hit -20% drawdown (official Bear Market starts)
-        if not in_bear and row['Drawdown'] <= -0.20:
-            in_bear = True
-            # Find the actual peak date leading to this crash
-            data_up_to_now = df_bear.loc[:date]
-            peak_date = data_up_to_now[data_up_to_now['Price'] == row['Rolling_Peak']].index[-1]
-            trough_price = row['Price']
-            trough_date = date
+    while search_start_idx < len(df_bear):
+        # 1. Look for a crash from a FRESH peak starting at this point
+        slice_df = df_bear.iloc[search_start_idx:].copy()
+        slice_df['Rolling_Peak'] = slice_df['Price'].cummax()
+        slice_df['Drawdown'] = (slice_df['Price'] - slice_df['Rolling_Peak']) / slice_df['Rolling_Peak']
+        
+        # Check if a 20% drop exists in the remaining data
+        trigger_mask = slice_df['Drawdown'] <= -0.20
+        if not trigger_mask.any():
+            break
             
-        if in_bear:
-            # Update Trough if we find a new low
-            if row['Price'] < trough_price:
-                trough_price = row['Price']
+        # 2. Identify Peak and Trough
+        trigger_date = slice_df.index[trigger_mask][0]
+        peak_val = slice_df.loc[trigger_date, 'Rolling_Peak']
+        peak_date = slice_df[:trigger_date][slice_df['Price'] == peak_val].index[-1]
+        
+        trough_price = slice_df.loc[trigger_date, 'Price']
+        trough_date = trigger_date
+        recovery_date = None
+        
+        # 3. Track the Absolute Trough until a 20% recovery is confirmed
+        for date in slice_df.index[slice_df.index >= trigger_date]:
+            current_price = slice_df.loc[date, 'Price']
+            if current_price < trough_price:
+                trough_price = current_price
                 trough_date = date
             
-            # EXIT: Recovery +20% from the trough confirms the bear market is over
-            recovery_pct = (row['Price'] - trough_price) / trough_price
-            if recovery_pct >= 0.20:
-                episodes.append((peak_date, trough_date))
-                in_bear = False
-                
-    # If currently in a bear market, shade from peak to current trough
-    if in_bear:
+            # Exit condition: 20% rally from the lowest point
+            if (current_price - trough_price) / trough_price >= 0.20:
+                recovery_date = date
+                break
+        
+        # 4. Save the Peak-to-Trough period
         episodes.append((peak_date, trough_date))
         
+        # 5. CRITICAL: Restart searching only AFTER the recovery was confirmed
+        if recovery_date:
+            search_start_idx = df_bear.index.get_loc(recovery_date) + 1
+        else:
+            # We are currently in a bear market with no recovery yet
+            break
+            
     return episodes
 
 df = get_master_data()
