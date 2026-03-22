@@ -116,23 +116,21 @@ def get_master_data():
     except Exception as e:
         st.sidebar.error(f"FINRA Scraper Error: {e}")
 
-    # 3. Join everything on the UNION of all dates
-    # This prevents CPI from being cut off if FINRA or S&P 500 is missing data
+    # Final Safety Check: If every single data source failed, stop here
+    if not series_dict:
+        return pd.DataFrame() 
+
+    # 1. Join everything on the UNION of all dates
     df = pd.concat(series_dict, axis=1).sort_index()
 
-    # 4. Apply forward fill to expand monthly data to daily
-    # Daily series like VIX and HY will NOT be affected because they already have daily data
+    # 2. Forward fill monthly/weekly data (M2, CPI, FINRA) into daily slots
     df = df.ffill()
 
-    # 5. Trim to only show dates where the S&P 500 actually exists
+    # 3. Trim to only show dates where the S&P 500 actually exists
+    # This removes weekends/holidays where FRED has data but markets are closed
     if 'SP500' in df.columns:
         df = df.dropna(subset=['SP500'])
     
-    # Final Safety Check: Join and return
-    if not series_dict:
-        return pd.DataFrame() # Return empty if everything failed
-        
-    df = pd.concat(series_dict, axis=1).sort_index().ffill()
     return df
 
 df = get_master_data()
