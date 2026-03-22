@@ -40,7 +40,7 @@ def get_master_data():
     df_combined = pd.DataFrame()
 
     try:
-        	if os.path.exists(csv_file):
+        if os.path.exists(csv_file):
             # 1. Load the local CSV with Multi-headers
             df_local = pd.read_csv(csv_file, header=[0, 1], index_col=0, parse_dates=True)
             
