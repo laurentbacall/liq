@@ -189,6 +189,8 @@ def calculate_bear_markets(series):
         
     return episodes
 
+df = get_master_data()
+
 # --- 3. CALCULATIONS ---
 if not df.empty:
     # SAFETY: Ensure all required columns exist as Series (prevents AttributeError)
