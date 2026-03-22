@@ -164,7 +164,8 @@ if not df.empty:
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(periods=252) * 100
     
     # CPI YoY calculation (for real growth)
-    df['CPI_YoY'] = df['CPI'].pct_change(periods=252) * 100
+    if 'CPI' in df.columns:
+        df['CPI_YoY'] = df['CPI'].pct_change(periods=252) * 100
     
     # Real M2 Growth
     if 'M2' in df.columns:
@@ -244,7 +245,9 @@ start_s, end_s = st.select_slider(
 p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
-fig, axes = plt.subplots(11, 1, figsize=(14, 75))
+#fig, axes = plt.subplots(11, 1, figsize=(14, 75))
+fig, axes = plt.subplots(nrows=12, ncols=1, figsize=(12, 48), sharex=True)
+plt.subplots_adjust(hspace=0.35)
 
 def format_ax(ax, title, use_log=False):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=14)
@@ -309,38 +312,40 @@ lines, labels = ax4.get_legend_handles_labels()
 lines2, labels2 = ax4_twin.get_legend_handles_labels()
 ax4.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
-# 6-10
-axes[5].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[5], "6. Real 10Y Yield")
-axes[6].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[6], "7. Yield Curve")
-axes[7].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[7], "8. USD Index")
-axes[8].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[8], "9. VIX")
-axes[9].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[9], "10. Funding Stress")
-
 # 11. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score
-ax10 = axes[10]
-ax10_twin = ax10.twinx()
+ax5 = axes[5]
+ax5_twin = ax5.twinx()
 
 # Plot Raw Ratio (Left Axis - Purple)
-ax10.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
-ax10.set_ylabel('Raw Ratio', color='purple', fontsize=10)
+ax5.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+ax5.set_ylabel('Raw Ratio', color='purple', fontsize=10)
 
 # Plot Z-Score (Right Axis - Firebrick)
-ax10_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
-ax10_twin.axhline(0, color='black', lw=1, alpha=0.5)
-ax10_twin.axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone (+2 Sigma)
-ax10_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
+ax5_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
+ax5_twin.axhline(0, color='black', lw=1, alpha=0.5)
+ax5_twin.axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone (+2 Sigma)
+ax5_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
 
 # Shading for high-leverage "Danger Zones"
-ax10_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
+ax5_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
                        where=(get_s('Margin_Ratio_Z') >= 2), 
                        color='red', alpha=0.2, interpolate=True)
 
-format_ax(ax10, "11. Leverage Proxy (Margin Debt / Wilshire 5000)")
+format_ax(ax5, "6. Leverage Proxy (Margin Debt / Wilshire 5000)")
 
 # Combine Legends
-lines, labels = ax10.get_legend_handles_labels()
-lines2, labels2 = ax10_twin.get_legend_handles_labels()
-ax10.legend(lines + lines2, labels + labels2, loc='upper left')
+lines, labels = ax5.get_legend_handles_labels()
+lines2, labels2 = ax5_twin.get_legend_handles_labels()
+ax5.legend(lines + lines2, labels + labels2, loc='upper left')
+
+
+# 6-10
+axes[6].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[6], "7. Real 10Y Yield")
+axes[7].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[7], "8. Yield Curve")
+axes[8].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[8], "9. USD Index")
+axes[9].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[9], "10. VIX")
+axes[10].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[10], "11. Funding Stress")
+
 
 plt.tight_layout(pad=4.0)
 st.pyplot(fig)
