@@ -395,7 +395,7 @@ ax3.legend(lines + lines2, labels + labels2, loc='upper left')
 # 6-10
 axes[4].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
 axes[5].plot(p_df.index, get_s('CPI_YoY'), color='purple'); format_ax(axes[5], "6. CPI YoY")
-axes[5].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
+axes[6].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
 axes[7].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
 axes[8].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[8], "8. Yield Curve")
 axes[9].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[9], "9. USD Index")
