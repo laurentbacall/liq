@@ -300,7 +300,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 #fig, axes = plt.subplots(11, 1, figsize=(14, 75))
-fig, axes = plt.subplots(nrows=11, ncols=1, figsize=(12, 48), sharex=True)
+fig, axes = plt.subplots(nrows=12, ncols=1, figsize=(12, 48), sharex=True)
 plt.subplots_adjust(hspace=0.35)
 
 def format_ax(ax, title, use_log=False):
@@ -334,7 +334,7 @@ if 'SP500_SMA200' in p_df.columns:
     axes[0].legend(loc='upper left')
 format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
 
-# 2-4 
+# 2 Allocation 
 axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5); format_ax(axes[1], "2. System Allocation %")
 
 
@@ -350,7 +350,7 @@ ax2.invert_yaxis()
 
 # Plot HY Z-Score (Secondary - Right Axis)
 # We use a semi-transparent fill or a dashed line to keep it readable
-ax2_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, ls='--', alpha=0.5, label='HY Z-Score')
+ax2_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
 ax2_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
 
 # Formatting
@@ -394,12 +394,14 @@ ax3.legend(lines + lines2, labels + labels2, loc='upper left')
 
 # 6-10
 axes[4].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
-axes[5].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[5], "6. Real M2 Growth")
-axes[6].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[6], "7. Real 10Y Yield")
-axes[7].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[7], "8. Yield Curve")
-axes[8].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[8], "9. USD Index")
-axes[9].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[9], "10. VIX")
-axes[10].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[10], "11. Funding Stress")
+axes[5].plot(p_df.index, get_s('CPI_YoY'), color='purple'); format_ax(axes[5], "6. CPI YoY")
+axes[5].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
+axes[7].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
+axes[8].p6ot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[8], "8. Yield Curve")
+axes[9].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[9], "9. USD Index")
+axes[10].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[10], "9. USD Index")
+axes[11].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[11], "10. VIX")
+axes[12].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[12], "11. Funding Stress")
 
 
 plt.tight_layout(pad=4.0)
