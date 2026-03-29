@@ -92,7 +92,7 @@ def get_master_data():
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'WTREGEN': 'TGA', 
         'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s',
         'DFII10': 'Real_10Y_Yield','SOFR': 'SOFR','TGCRRATE': 'TGCR', 'DEXUSEU': 'EURUSD',
-        'DEXUSDM': 'DEMUSD'
+        'EXGEUS': 'USDDEM'
     }
     for fid, name in fred_ids.items():
         try:
@@ -206,15 +206,17 @@ df = get_master_data()
 # --- 3. CALCULATIONS ---
 if not df.empty:
     # SAFETY: Ensure all required columns exist as Series (prevents AttributeError)
-    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'DEMUSD']
+    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM']
     for col in required_cols:
         if col not in df.columns:
             df[col] = 0.0  # Create as float series of zeros
 
     # Now the math is safe
+    #'DEXUSEU': 'EURUSD',
+    #'EXGEUS': 'USDDEM'
     # Convert DEM/USD to EUR/USD (pre-1999)
-    if 'DEMUSD' in series_dict:
-        series_dict['EURUSD_pre1999'] = series_dict['DEMUSD'] / 1.95583
+    if 'USDDEM' in series_dict:
+        series_dict['EURUSD_pre1999'] = 1.95583 / series_dict['USDDEM']
     if 'EURUSD' in series_dict and 'EURUSD_pre1999' in series_dict:
         eur_full = pd.concat([
             series_dict['EURUSD_pre1999'][:"1998-12-31"],
