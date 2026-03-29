@@ -133,6 +133,20 @@ def get_master_data():
             st.sidebar.warning("Could not find data rows in FINRA file.")
     except Exception as e:
         st.sidebar.error(f"FINRA Scraper Error: {e}")
+    # --- 4. SYNTHETIC CURRENCY LOGIC ---
+    # Convert DEM/USD to EUR/USD for pre-1999 data (Fixed rate: 1.95583)
+    if 'USDDEM' in series_dict:
+        series_dict['EURUSD_pre1999'] = 1.95583 / series_dict['USDDEM']
+        
+        if 'EURUSD' in series_dict:
+            # Stitch the two series together
+            eur_full = pd.concat([
+                series_dict['EURUSD_pre1999'][:"1998-12-31"],
+                series_dict['EURUSD']
+            ]).sort_index()
+            
+            # Create the final USD/EUR (inverse) series
+            series_dict['USDEUR_FULL'] = 1 / eur_full
 
     # Final Safety Check: If every single data source failed, stop here
     if not series_dict:
@@ -212,18 +226,6 @@ if not df.empty:
             df[col] = 0.0  # Create as float series of zeros
 
     # Now the math is safe
-    #'DEXUSEU': 'EURUSD',
-    #'EXGEUS': 'USDDEM'
-    # Convert DEM/USD to EUR/USD (pre-1999)
-    if 'USDDEM' in series_dict:
-        series_dict['EURUSD_pre1999'] = 1.95583 / series_dict['USDDEM']
-    if 'EURUSD' in series_dict and 'EURUSD_pre1999' in series_dict:
-        eur_full = pd.concat([
-            series_dict['EURUSD_pre1999'][:"1998-12-31"],
-            series_dict['EURUSD']
-        ]).sort_index()
-
-        series_dict['USDEUR_FULL'] = 1 / eur_full
 
     df['Net_Liq'] = df['Fed_Assets'] - (df['TGA'].fillna(0) + df['RRP'].fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(periods=252) * 100
