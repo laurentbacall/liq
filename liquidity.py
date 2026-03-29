@@ -300,7 +300,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 #fig, axes = plt.subplots(11, 1, figsize=(14, 75))
-fig, axes = plt.subplots(nrows=12, ncols=1, figsize=(12, 48), sharex=True)
+fig, axes = plt.subplots(nrows=13, ncols=1, figsize=(12, 48), sharex=True)
 plt.subplots_adjust(hspace=0.35)
 
 def format_ax(ax, title, use_log=False):
