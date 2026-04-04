@@ -323,7 +323,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 #fig, axes = plt.subplots(11, 1, figsize=(14, 75))
-fig, axes = plt.subplots(nrows=13, ncols=1, figsize=(12, 48), sharex=True)
+fig, axes = plt.subplots(nrows=14, ncols=1, figsize=(12, 48), sharex=True)
 plt.subplots_adjust(hspace=0.35)
 
 def format_ax(ax, title, use_log=False):
@@ -417,36 +417,36 @@ ax3.legend(lines + lines2, labels + labels2, loc='upper left')
 
 # 6-10
 axes[4].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
-# axes[5].plot(p_df.index, get_s('CPI_YoY'), color='purple'); format_ax(axes[5], "6. CPI YoY")
-# 6. Rates vs Inflation (Consolidated)
+# 5. Short-Term Rates vs Inflation
 axes[5].plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %', zorder=5)
 axes[5].plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate', alpha=0.8)
-axes[5].plot(p_df.index, get_s('Fed_2Y'), color='royalblue', lw=1, label='2Y Rate', alpha=0.8)
-axes[5].plot(p_df.index, get_s('Fed_10Y'), color='darkblue', lw=1, label='10Y Rate', alpha=0.8)
-
-# Add a horizontal line at 0 for reference
 axes[5].axhline(0, color='gray', lw=0.5, alpha=0.5)
+format_ax(axes[5], "6a. Short-Term: 3M Rate vs. CPI YoY")
+axes[5].legend(loc='upper left', fontsize=9)
 
-# Formatting
-format_ax(axes[5], "6. Rates (3M, 2Y, 10Y) vs. CPI YoY")
-axes[5].legend(loc='upper left', fontsize=9, ncol=2) # ncol=2 keeps the legend compact
-axes[6].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
-axes[7].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
+# 6. Medium & Long-Term Yields
+axes[6].plot(p_df.index, get_s('Fed_2Y'), color='royalblue', lw=1.2, label='2Y Rate')
+axes[6].plot(p_df.index, get_s('Fed_10Y'), color='darkblue', lw=1.2, label='10Y Rate')
+axes[6].axhline(0, color='gray', lw=0.5, alpha=0.5)
+format_ax(axes[6], "6b. Term Structure: 2Y and 10Y Rates")
+axes[6].legend(loc='upper left', fontsize=9)
+axes[7].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
+axes[8].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
 # 8. Yield Curves (10Y-2Y and 2Y-3M)
-axes[8].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', lw=1.5, label='10Y-2Y (Eco Cycle)')
-axes[8].plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', lw=1.2, label='2Y-3M (Fed Pivot)')
+axes[9].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', lw=1.5, label='10Y-2Y (Eco Cycle)')
+axes[9].plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', lw=1.2, label='2Y-3M (Fed Pivot)')
 
 # Add a horizontal line at 0 to show Inversion
-axes[8].axhline(0, color='black', lw=1, alpha=0.5)
+axes[9].axhline(0, color='black', lw=1, alpha=0.5)
 
 # Formatting
-format_ax(axes[8], "8. Yield Curves: 10Y-2Y & 2Y-3M")
-axes[8].legend(loc='upper left', fontsize=9)
-axes[9].plot(p_df.index, get_s('USDEUR_FULL'), color='navy'); format_ax(axes[9], "9. USD/EUR")
-axes[9].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-axes[10].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[10], "9. USD Index")
-axes[11].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[11], "10. VIX")
-axes[12].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[12], "11. Funding Stress")
+format_ax(axes[9], "8. Yield Curves: 10Y-2Y & 2Y-3M")
+axes[9].legend(loc='upper left', fontsize=9)
+axes[10].plot(p_df.index, get_s('USDEUR_FULL'), color='navy'); format_ax(axes[9], "9. USD/EUR")
+axes[10].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+axes[11].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[10], "9. USD Index")
+axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[11], "10. VIX")
+axes[13].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[12], "11. Funding Stress")
 
 
 plt.tight_layout(pad=4.0)
