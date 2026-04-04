@@ -93,7 +93,7 @@ def get_master_data():
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'WTREGEN': 'TGA', 
         'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s',
         'DFII10': 'Real_10Y_Yield','SOFR': 'SOFR','TGCRRATE': 'TGCR', 'DEXUSEU': 'EURUSD',
-        'EXGEUS': 'USDDEM'
+        'EXGEUS': 'USDDEM','DGS3MO': 'Fed_3M', 'DGS2': 'Fed_2Y', 'DGS10': 'Fed_10Y'
     }
     for fid, name in fred_ids.items():
         try:
@@ -412,7 +412,19 @@ ax3.legend(lines + lines2, labels + labels2, loc='upper left')
 
 # 6-10
 axes[4].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
-axes[5].plot(p_df.index, get_s('CPI_YoY'), color='purple'); format_ax(axes[5], "6. CPI YoY")
+# axes[5].plot(p_df.index, get_s('CPI_YoY'), color='purple'); format_ax(axes[5], "6. CPI YoY")
+# 6. Rates vs Inflation (Consolidated)
+axes[5].plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %', zorder=5)
+axes[5].plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate', alpha=0.8)
+axes[5].plot(p_df.index, get_s('Fed_2Y'), color='royalblue', lw=1, label='2Y Rate', alpha=0.8)
+axes[5].plot(p_df.index, get_s('Fed_10Y'), color='darkblue', lw=1, label='10Y Rate', alpha=0.8)
+
+# Add a horizontal line at 0 for reference
+axes[5].axhline(0, color='gray', lw=0.5, alpha=0.5)
+
+# Formatting
+format_ax(axes[5], "6. Rates (3M, 2Y, 10Y) vs. CPI YoY")
+axes[5].legend(loc='upper left', fontsize=9, ncol=2) # ncol=2 keeps the legend compact
 axes[6].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
 axes[7].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
 axes[8].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[8], "8. Yield Curve")
