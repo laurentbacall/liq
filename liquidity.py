@@ -434,7 +434,7 @@ axes[6].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axe
 axes[7].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
 # 8. Yield Curves (10Y-2Y and 2Y-3M)
 axes[8].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', lw=1.5, label='10Y-2Y (Eco Cycle)')
-axes[8].plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', lw=1.2, ls='--', label='2Y-3M (Fed Pivot)')
+axes[8].plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', lw=1.2, label='2Y-3M (Fed Pivot)')
 
 # Add a horizontal line at 0 to show Inversion
 axes[8].axhline(0, color='black', lw=1, alpha=0.5)
