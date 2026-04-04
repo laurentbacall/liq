@@ -274,6 +274,11 @@ if not df.empty:
         bear_episodes = calculate_bear_markets(df['SP500'])
     else:
         bear_episodes = []
+    # 2Y-3M Spread calculation
+    if 'Fed_2Y' in df.columns and 'Fed_3M' in df.columns:
+        df['Spread_2Y3M'] = df['Fed_2Y'] - df['Fed_3M']
+    else:
+        df['Spread_2Y3M'] = 0.0
 # --- 3. CALCULATIONS & SCORING ---
 if not df.empty:
     # 1. Ensure all columns exist as Series to prevent the 'bool' AttributeError
@@ -427,7 +432,16 @@ format_ax(axes[5], "6. Rates (3M, 2Y, 10Y) vs. CPI YoY")
 axes[5].legend(loc='upper left', fontsize=9, ncol=2) # ncol=2 keeps the legend compact
 axes[6].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "6. Real M2 Growth")
 axes[7].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[7], "7. Real 10Y Yield")
-axes[8].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen'); format_ax(axes[8], "8. Yield Curve")
+# 8. Yield Curves (10Y-2Y and 2Y-3M)
+axes[8].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', lw=1.5, label='10Y-2Y (Eco Cycle)')
+axes[8].plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', lw=1.2, ls='--', label='2Y-3M (Fed Pivot)')
+
+# Add a horizontal line at 0 to show Inversion
+axes[8].axhline(0, color='black', lw=1, alpha=0.5)
+
+# Formatting
+format_ax(axes[8], "8. Yield Curves: 10Y-2Y & 2Y-3M")
+axes[8].legend(loc='upper left', fontsize=9)
 axes[9].plot(p_df.index, get_s('USDEUR_FULL'), color='navy'); format_ax(axes[9], "9. USD/EUR")
 axes[9].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 axes[10].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[10], "9. USD Index")
