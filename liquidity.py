@@ -289,6 +289,12 @@ if not df.empty:
         df['Spread_2Y3M'] = df['Fed_2Y'] - df['Fed_3M']
     else:
         df['Spread_2Y3M'] = 0.0
+
+    # --- SMA Spread (Golden/Death Cross Oscillator) ---
+    if 'SP500_SMA50' in df.columns and 'SP500_SMA200' in df.columns:
+        df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
+    else:
+        df['SMA_Spread'] = 0.0
 # --- NEW DYNAMIC ALLOCATION LOGIC ---
     # Initialize variables
     allocations = []
@@ -340,7 +346,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 #fig, axes = plt.subplots(11, 1, figsize=(14, 75))
-fig, axes = plt.subplots(nrows=14, ncols=1, figsize=(12, 48), sharex=True)
+fig, axes = plt.subplots(nrows=15, ncols=1, figsize=(12, 48), sharex=True)
 plt.subplots_adjust(hspace=0.35)
 
 def format_ax(ax, title, use_log=False):
@@ -469,7 +475,18 @@ axes[10].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 axes[11].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[11], "9. USD Index")
 axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[12], "10. VIX")
 axes[13].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[13], "11. Funding Stress")
+# 15. SMA Spread (50D - 200D)
+axes[14].plot(p_df.index, get_s('SMA_Spread'), color='black', lw=1, label='50D - 200D')
 
+# Fill Area: Green for Golden Cross momentum, Red for Death Cross momentum
+axes[14].fill_between(p_df.index, get_s('SMA_Spread'), 0, 
+                       where=(get_s('SMA_Spread') >= 0), color='green', alpha=0.3)
+axes[14].fill_between(p_df.index, get_s('SMA_Spread'), 0, 
+                       where=(get_s('SMA_Spread') < 0), color='red', alpha=0.3)
+
+axes[14].axhline(0, color='black', lw=1) # Zero line
+format_ax(axes[14], "15. SMA Momentum (50D SMA - 200D SMA)")
+axes[14].legend(loc='upper left', fontsize=9)
 
 plt.tight_layout(pad=4.0)
 
