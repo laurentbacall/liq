@@ -295,29 +295,32 @@ if not df.empty:
         df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
     else:
         df['SMA_Spread'] = 0.0
-# --- NEW DYNAMIC ALLOCATION LOGIC ---
-    # Initialize variables
+    # --- DYNAMIC ALLOCATION WITH CONDITIONAL LEVERAGE IGNORE ---
     allocations = []
-    current_state = 90  # Start at 90%
+    current_state = 90  # Default starting state
     
-    # Pre-calculate triggers for speed
-    # 1. Leverage Exit: Margin Ratio Z monthly peak > 2
-    # We use a rolling 21-day (1 month) maximum of the Z-score
+    # 1. Leverage Trigger: Monthly peak of Margin Ratio Z > 2
     lev_peak = df['Margin_Ratio_Z'].rolling(window=21).max()
-    exit_trigger = lev_peak > 2
     
-    # 2. Re-entry: HY Z peaks > 2 AND Fed is Dovish (3M < CPI)
+    # 2. Technical Filter: Is SMA50 below SMA200?
+    # If True, we IGNORE the leverage signal for the exit
+    death_cross = df['SP500_SMA50'] < df['SP500_SMA200']
+    
+    # Define the Exit Condition: Peak > 2 AND NOT in a Death Cross
+    exit_trigger = (lev_peak > 2) & (~death_cross)
+    
+    # 3. Re-entry Trigger: HY Z peaks > 2 AND Fed is Dovish (3M < CPI)
     hy_peak = df['HY_Z'].rolling(window=21).max()
     dovish_fed = df['Fed_3M'] < df['CPI_YoY']
     reentry_trigger = (hy_peak > 2) & dovish_fed
 
-    # Iterate through the dataframe to apply the "Switch" logic
+    # Iterate to apply the logic
     for i in range(len(df)):
-        # Check Exit Condition
+        # EXIT LOGIC: Go to 10% if leverage is high, UNLESS death cross is active
         if current_state == 90 and exit_trigger.iloc[i]:
             current_state = 10
         
-        # Check Re-entry Condition
+        # RE-ENTRY LOGIC: Standard recovery trigger
         elif current_state == 10 and reentry_trigger.iloc[i]:
             current_state = 90
             
