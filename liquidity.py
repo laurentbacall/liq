@@ -295,35 +295,47 @@ if not df.empty:
         df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
     else:
         df['SMA_Spread'] = 0.0
-    # --- DYNAMIC ALLOCATION WITH CONDITIONAL LEVERAGE IGNORE ---
+    # --- DYNAMIC ALLOCATION: 3-MONTH PERSISTENCE & PEAK-CHECK ---
     allocations = []
     current_state = 90  # Default starting state
     
-    # 1. Leverage Trigger: Monthly peak of Margin Ratio Z > 2
-    lev_peak = df['Margin_Ratio_Z'].rolling(window=21).max()
+    # 1. Identify Monthly Z-Scores (to ensure we look at 3 distinct months)
+    # We take the last value of each month to avoid daily noise
+    monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
     
-    # 2. Technical Filter: Is SMA50 below SMA200?
-    # If True, we IGNORE the leverage signal for the exit
+    # 2. Define the 3-Month Persistence Signal
+    # Condition A: Current Month > 2, Prev Month > 2, and 2 Months Ago > 2
+    three_months_above_2 = (monthly_z > 2) & (monthly_z.shift(1) > 2) & (monthly_z.shift(2) > 2)
+    
+    # 3. Define the Peak-Check Signal
+    # Condition B: Current value is lower than the maximum of the previous two months
+    # (i.e., we have potentially seen the 'top' of the leverage cycle)
+    prev_max = monthly_z.shift(1).combine(monthly_z.shift(2), max)
+    is_below_recent_peak = monthly_z < prev_max
+    
+    # Combined Leverage Trigger (Monthly Frequency)
+    lev_trigger_monthly = three_months_above_2 & is_below_recent_peak
+    
+    # Map the monthly signal back to the daily dataframe
+    df['Leverage_Exit_Signal'] = lev_trigger_monthly.reindex(df.index, method='ffill').fillna(False)
+    
+    # 4. Standard Technical Filter: No Exit if in a Death Cross
     death_cross = df['SP500_SMA50'] < df['SP500_SMA200']
     
-    # Define the Exit Condition: Peak > 2 AND NOT in a Death Cross
-    exit_trigger = (lev_peak > 2) & (~death_cross)
+    # Final Exit Condition
+    exit_trigger = df['Leverage_Exit_Signal'] & (~death_cross)
     
-    # 3. Re-entry Trigger: HY Z peaks > 2 AND Fed is Dovish (3M < CPI)
+    # 5. Re-entry Trigger (Existing Logic)
     hy_peak = df['HY_Z'].rolling(window=21).max()
     dovish_fed = df['Fed_3M'] < df['CPI_YoY']
     reentry_trigger = (hy_peak > 2) & dovish_fed
 
     # Iterate to apply the logic
     for i in range(len(df)):
-        # EXIT LOGIC: Go to 10% if leverage is high, UNLESS death cross is active
         if current_state == 90 and exit_trigger.iloc[i]:
             current_state = 10
-        
-        # RE-ENTRY LOGIC: Standard recovery trigger
         elif current_state == 10 and reentry_trigger.iloc[i]:
             current_state = 90
-            
         allocations.append(current_state)
 
     df['Allocation_Pct'] = allocations
