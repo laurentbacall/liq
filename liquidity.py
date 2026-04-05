@@ -368,7 +368,7 @@ def format_ax(ax, title, use_log=False):
 def get_s(col): return p_df[col] if col in p_df.columns else pd.Series(np.zeros(len(p_df)), index=p_df.index)
 
 # 1. SP500 (REQ: Log Scale + SMA 200 + 1000pt Grid)
-axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=1)
+axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=0.5)
 if 'SP500_SMA200' in p_df.columns:
     axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', ls='--', lw=1.5, label='200D SMA')
 if 'SP500_SMA50' in p_df.columns:
