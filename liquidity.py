@@ -279,28 +279,35 @@ if not df.empty:
         df['Spread_2Y3M'] = df['Fed_2Y'] - df['Fed_3M']
     else:
         df['Spread_2Y3M'] = 0.0
-# --- 3. CALCULATIONS & SCORING ---
-if not df.empty:
-    # 1. Ensure all columns exist as Series to prevent the 'bool' AttributeError
-    required_cols = {
-        'Net_Liq_YoY': 0, 'Net_Liq': 0, 'Net_Liq_SMA': 0, 
-        'M2_Real_Growth': 0, 'Real_10Y_Yield': 5, 'HY_Z': 1, 
-        'Funding_Stress': 50, 'VIX': 20, 'VIX_SMA': 20
-    }
-    for col, default in required_cols.items():
-        if col not in df.columns:
-            df[col] = default # This creates a Series filled with the default value
+# --- NEW DYNAMIC ALLOCATION LOGIC ---
+    # Initialize variables
+    allocations = []
+    current_state = 90  # Start at 90%
+    
+    # Pre-calculate triggers for speed
+    # 1. Leverage Exit: Margin Ratio Z monthly peak > 2
+    # We use a rolling 21-day (1 month) maximum of the Z-score
+    lev_peak = df['Margin_Ratio_Z'].rolling(window=21).max()
+    exit_trigger = lev_peak > 2
+    
+    # 2. Re-entry: HY Z peaks > 2 AND Fed is Dovish (3M < CPI)
+    hy_peak = df['HY_Z'].rolling(window=21).max()
+    dovish_fed = df['Fed_3M'] < df['CPI_YoY']
+    reentry_trigger = (hy_peak > 2) & dovish_fed
 
-    # 2. Now calculate signals safely (using actual Series)
-    s1 = (df['Net_Liq_YoY'] > 0).astype(int) * 20
-    s2 = (df['Net_Liq'] > df['Net_Liq_SMA']).astype(int) * 20
-    s3 = (df['M2_Real_Growth'] > 0).astype(int) * 15
-    s4 = (df['Real_10Y_Yield'] < 1.0).astype(int) * 15
-    s5 = (df['HY_Z'] < 0.0).astype(int) * 10
-    s6 = (df['Funding_Stress'] < 15).astype(int) * 10
-    s7 = (df['VIX'] < df['VIX_SMA']).astype(int) * 10
+    # Iterate through the dataframe to apply the "Switch" logic
+    for i in range(len(df)):
+        # Check Exit Condition
+        if current_state == 90 and exit_trigger.iloc[i]:
+            current_state = 10
+        
+        # Check Re-entry Condition
+        elif current_state == 10 and reentry_trigger.iloc[i]:
+            current_state = 90
+            
+        allocations.append(current_state)
 
-    df['Allocation_Pct'] = s1 + s2 + s3 + s4 + s5 + s6 + s7
+    df['Allocation_Pct'] = allocations
 
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
@@ -423,6 +430,7 @@ axes[5].plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate', a
 axes[5].axhline(0, color='gray', lw=0.5, alpha=0.5)
 format_ax(axes[5], "6a. Short-Term: 3M Rate vs. CPI YoY")
 axes[5].legend(loc='upper left', fontsize=9)
+axes[5].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
 # 6. Medium & Long-Term Yields
 axes[6].plot(p_df.index, get_s('Fed_2Y'), color='royalblue', lw=1.2, label='2Y Rate')
@@ -430,8 +438,10 @@ axes[6].plot(p_df.index, get_s('Fed_10Y'), color='darkblue', lw=1.2, label='10Y 
 axes[6].axhline(0, color='gray', lw=0.5, alpha=0.5)
 format_ax(axes[6], "6b. Term Structure: 2Y and 10Y Rates")
 axes[6].legend(loc='upper left', fontsize=9)
+axes[6].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 axes[7].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[7], "6. Real M2 Growth")
 axes[8].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[8], "7. Real 10Y Yield")
+axes[8].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 # 8. Yield Curves (10Y-2Y and 2Y-3M)
 axes[9].plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', lw=1.5, label='10Y-2Y (Eco Cycle)')
 axes[9].plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', lw=1.2, label='2Y-3M (Fed Pivot)')
