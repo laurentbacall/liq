@@ -239,9 +239,9 @@ if not df.empty:
     if 'M2' in df.columns:
         m2_growth = df['M2'].pct_change(periods=252) * 100
         df['M2_Real_Growth'] = m2_growth - df['CPI_YoY'].fillna(0)
-    # REQ: SMA 200
+    # REQ: SMA 200 and SMA 50
     df['SP500_SMA200'] = df['SP500'].rolling(window=200).mean()
-    
+    df['SP500_SMA50'] = df['SP500'].rolling(window=50).mean()
     # --- UPDATED LEVERAGE LOGIC: Monthly Smoothing ---
     if 'Margin_Debt' in df.columns and 'W5000' in df.columns:
         # 1. Identify the days where Margin Debt actually changes (monthly arrivals)
@@ -371,7 +371,9 @@ def get_s(col): return p_df[col] if col in p_df.columns else pd.Series(np.zeros(
 axes[0].plot(p_df.index, p_df['SP500'], color='black', lw=2)
 if 'SP500_SMA200' in p_df.columns:
     axes[0].plot(p_df.index, p_df['SP500_SMA200'], color='red', ls='--', lw=1.5, label='200D SMA')
-    axes[0].legend(loc='upper left')
+if 'SP500_SMA50' in p_df.columns:
+    axes[0].plot(p_df.index, p_df['SP500_SMA50'], color='blue', ls=':', lw=1.2, label='50D SMA')
+axes[0].legend(loc='upper left')
 format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
 
 # 2 Allocation 
