@@ -242,13 +242,23 @@ if not df.empty:
     # REQ: SMA 200
     df['SP500_SMA200'] = df['SP500'].rolling(window=200).mean()
     
-    # Calculation: Margin Debt to Market Cap Ratio
+    # --- UPDATED LEVERAGE LOGIC: Monthly Smoothing ---
     if 'Margin_Debt' in df.columns and 'W5000' in df.columns:
-        # We calculate the raw ratio
-        df['Margin_Market_Ratio'] = df['Margin_Debt'] / df['W5000']
+        # 1. Identify the days where Margin Debt actually changes (monthly arrivals)
+        # This creates a series that is NaN except on the day the new monthly value drops
+        monthly_margin = df['Margin_Debt'].drop_duplicates()
+
+        # 2. Calculate the 30-day moving average for W5000
+        w5000_30d_avg = df['W5000'].rolling(window=30).mean()
+
+        # 3. Create the Ratio only on those monthly 'change' dates
+        # We align the monthly debt value with the 30-day average of the market
+        df['Margin_Market_Ratio'] = monthly_margin / w5000_30d_avg
         
-        # Calculate a 3-year rolling Z-Score (756 trading days)
-        # This shows how "stretched" leverage is relative to recent history
+        # 4. Forward fill the ratio so it persists until the next month's data arrives
+        df['Margin_Market_Ratio'] = df['Margin_Market_Ratio'].ffill()
+
+        # 5. Re-calculate the 3-year rolling Z-Score based on this cleaner ratio
         rolling_mean = df['Margin_Market_Ratio'].rolling(window=756).mean()
         rolling_std = df['Margin_Market_Ratio'].rolling(window=756).std()
         df['Margin_Ratio_Z'] = (df['Margin_Market_Ratio'] - rolling_mean) / rolling_std
