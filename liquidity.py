@@ -326,10 +326,11 @@ if not df.empty:
     exit_trigger = df['Leverage_Exit_Signal'] & (~death_cross)
     
     # 5. Re-entry Trigger (Existing Logic)
-    hy_peak = df['HY_Z'].rolling(window=21).max()
-    dovish_fed = df['Fed_3M'] < df['CPI_YoY']
-    reentry_trigger = (hy_peak > 2) & dovish_fed
-
+    #hy_peak = df['HY_Z'].rolling(window=21).max()
+    #dovish_fed = df['Fed_3M'] < df['CPI_YoY']
+    #reentry_trigger = (hy_peak > 2) & dovish_fed
+    reentry_trigger = df['Divergence_Signal']
+    #reentry_trigger = ( (hy_peak > 2) & dovish_fed ) | ( df['Divergence_Signal']
     # Iterate to apply the logic
     for i in range(len(df)):
         if current_state == 90 and exit_trigger.iloc[i]:
@@ -339,7 +340,23 @@ if not df.empty:
         allocations.append(current_state)
 
     df['Allocation_Pct'] = allocations
-
+    # --- BULLISH DIVERGENCE LOGIC ---
+    # We look for a 'Lower Low' in SPY and a 'Lower High' in HY Spread Stress
+    
+    # 1. Identify local 60-day lows for SPY and peaks for HY Spread
+    df['SPY_Low'] = df['SP500'].rolling(window=60).min()
+    df['HY_Peak'] = df['HY_Spread'].rolling(window=60).max()
+    
+    # 2. Check if current SPY is a new low but HY Spread is NOT a new peak
+    # This implies the credit market is 'healing' while stocks are still 'bleeding'
+    spy_making_new_low = df['SP500'] <= df['SPY_Low']
+    hy_not_confirming = df['HY_Spread'] < df['HY_Peak']
+    
+    # 3. The Signal: Divergence exists when stocks panic but credit stays calm
+    df['Bull_Divergence'] = (spy_making_new_low & hy_not_confirming).astype(int)
+    
+    # 4. Persistence: Signal is valid if seen at least 3 times in the last 10 days
+    df['Divergence_Signal'] = df['Bull_Divergence'].rolling(window=10).sum() >= 3
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
 all_dates = df.index
