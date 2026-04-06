@@ -327,7 +327,7 @@ if not df.empty:
     reentry_trigger = vix_high_peak & vix_below_sma
     # --- DYNAMIC ALLOCATION LOGIC ---
     allocations = []
-    current_state = 90 
+    current_state = 90
     # The Loop
     for i in range(len(df)):
         if current_state == 90 and exit_trigger.iloc[i]:
@@ -339,6 +339,17 @@ if not df.empty:
     # 2. Assign to Dataframe (After the loop finishes)
     df['Allocation_Pct'] = allocations
 
+    # --- PERFORMANCE CALCULATIONS ---
+    if 'SP500' in df.columns:
+        # 1. Calculate daily market returns
+        df['Market_Returns'] = df['SP500'].pct_change().fillna(0)
+        
+        # 2. Strategy Returns (Multiplied by Allocation %)
+        df['Strategy_Returns'] = df['Market_Returns'] * (df['Allocation_Pct'] / 100)
+        
+        # 3. Cumulative Growth (Compounded)
+        df['Strategy_Cum'] = (1 + df['Strategy_Returns']).cumprod()
+        df['SPY_Cum'] = (1 + df['Market_Returns']).cumprod()
 
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
@@ -398,8 +409,35 @@ axes[0].legend(loc='upper left')
 format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
 
 # 2 Allocation 
-axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5); format_ax(axes[1], "2. System Allocation %")
+#axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5); format_ax(axes[1], "2. System Allocation %")
+# 2. Allocation & Performance Comparison
+ax1 = axes[1]
+ax1_twin = ax1.twinx()
 
+# Plot Allocation % (Background Fill)
+ax1.fill_between(p_df.index, get_s('Allocation_Pct'), 0, color='blue', alpha=0.05, label='Allocation %')
+ax1.set_ylim(0, 110)
+ax1.set_ylabel('Allocation %', fontsize=10)
+
+# RE-BASING: Force both lines to start at 1.0 for the selected period
+strat_start = p_df['Strategy_Cum'].iloc[0]
+spy_start = p_df['SPY_Cum'].iloc[0]
+
+# Plot Strategy Performance
+ax1_twin.plot(p_df.index, p_df['Strategy_Cum'] / strat_start, 
+              color='navy', lw=2, label='Tactical Strategy')
+
+# Plot S&P 500 Benchmark
+ax1_twin.plot(p_df.index, p_df['SPY_Cum'] / spy_start, 
+              color='gray', lw=1.5, ls='--', alpha=0.7, label='S&P 500 (Buy & Hold)')
+
+ax1_twin.set_ylabel('Growth of $1', fontsize=10)
+format_ax(ax1, "2. Strategy vs. S&P 500 Benchmark (Re-based to $1)")
+
+# Combined Legend
+lines, labels = ax1.get_legend_handles_labels()
+lines2, labels2 = ax1_twin.get_legend_handles_labels()
+ax1.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
