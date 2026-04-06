@@ -221,13 +221,13 @@ df = get_master_data()
 # --- 3. CALCULATIONS ---
 if not df.empty:
     # SAFETY: Ensure all required columns exist as Series (prevents AttributeError)
-    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM']
+    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM', 'VIX']
     for col in required_cols:
         if col not in df.columns:
             df[col] = 0.0  # Create as float series of zeros
 
     # Now the math is safe
-
+    df['VIX_SMA14'] = df['VIX'].rolling(window=14).mean()
     df['Net_Liq'] = df['Fed_Assets'] - (df['TGA'].fillna(0) + df['RRP'].fillna(0))
     df['Net_Liq_YoY'] = df['Net_Liq'].pct_change(periods=252) * 100
     
@@ -296,16 +296,20 @@ if not df.empty:
     else:
         df['SMA_Spread'] = 0.0
     # --- BULLISH DIVERGENCE LOGIC ---
-    df['SPY_Low'] = df['SP500'].rolling(window=250).min()
-    df['HY_Peak'] = df['HY_Spread'].rolling(window=250).max()
-    spy_making_new_low = df['SP500'] <= df['SPY_Low']
-    hy_not_confirming = df['HY_Spread'] < df['HY_Peak']
-    df['Bull_Divergence'] = (spy_making_new_low & hy_not_confirming).astype(int)
-    df['Divergence_Signal'] = df['Bull_Divergence'].rolling(window=10).sum() >= 3
+    #df['SPY_Low'] = df['SP500'].rolling(window=250).min()
+    #df['HY_Peak'] = df['HY_Spread'].rolling(window=250).max()
+    #spy_making_new_low = df['SP500'] <= df['SPY_Low']
+    #hy_not_confirming = df['HY_Spread'] < df['HY_Peak']
+    #df['Bull_Divergence'] = (spy_making_new_low & hy_not_confirming).astype(int)
+    #df['Divergence_Signal'] = df['Bull_Divergence'].rolling(window=10).sum() >= 3
+    # --- NEW VIX RE-ENTRY LOGIC ---
+    # 1. Identify if VIX has peaked above 40 in the last 60 days
+    vix_high_peak = df['VIX'].rolling(window=60).max() > 40
+    
+    # 2. Check if VIX is currently closing below its 14-day SMA
+    vix_below_sma = df['VIX'] < df['VIX_SMA14']
+    
 
-    # --- DYNAMIC ALLOCATION LOGIC ---
-    allocations = []
-    current_state = 90 
     
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
@@ -319,8 +323,11 @@ if not df.empty:
     # Exit and Re-entry conditions
     death_cross = df['SP500_SMA50'] < df['SP500_SMA200']
     exit_trigger = df['Leverage_Exit_Signal'] & (~death_cross)
-    reentry_trigger = df['Divergence_Signal'] & (death_cross)
-
+    #reentry_trigger = df['Divergence_Signal'] & (death_cross)
+    reentry_trigger = vix_high_peak & vix_below_sma
+    # --- DYNAMIC ALLOCATION LOGIC ---
+    allocations = []
+    current_state = 90 
     # The Loop
     for i in range(len(df)):
         if current_state == 90 and exit_trigger.iloc[i]:
