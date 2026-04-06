@@ -319,7 +319,7 @@ if not df.empty:
     # Exit and Re-entry conditions
     death_cross = df['SP500_SMA50'] < df['SP500_SMA200']
     exit_trigger = df['Leverage_Exit_Signal'] & (~death_cross)
-    reentry_trigger = df['Divergence_Signal'] & (~death_cross)
+    reentry_trigger = df['Divergence_Signal'] & (death_cross)
 
     # The Loop
     for i in range(len(df)):
