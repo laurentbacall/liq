@@ -295,6 +295,24 @@ if not df.empty:
         df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
     else:
         df['SMA_Spread'] = 0.0
+    df['Allocation_Pct'] = allocations
+    # --- BULLISH DIVERGENCE LOGIC ---
+    # We look for a 'Lower Low' in SPY and a 'Lower High' in HY Spread Stress
+    
+    # 1. Identify local 60-day lows for SPY and peaks for HY Spread
+    df['SPY_Low'] = df['SP500'].rolling(window=60).min()
+    df['HY_Peak'] = df['HY_Spread'].rolling(window=60).max()
+    
+    # 2. Check if current SPY is a new low but HY Spread is NOT a new peak
+    # This implies the credit market is 'healing' while stocks are still 'bleeding'
+    spy_making_new_low = df['SP500'] <= df['SPY_Low']
+    hy_not_confirming = df['HY_Spread'] < df['HY_Peak']
+    
+    # 3. The Signal: Divergence exists when stocks panic but credit stays calm
+    df['Bull_Divergence'] = (spy_making_new_low & hy_not_confirming).astype(int)
+    
+    # 4. Persistence: Signal is valid if seen at least 3 times in the last 10 days
+    df['Divergence_Signal'] = df['Bull_Divergence'].rolling(window=10).sum() >= 3
     # --- DYNAMIC ALLOCATION: 3-MONTH PERSISTENCE & PEAK-CHECK ---
     allocations = []
     current_state = 90  # Default starting state
@@ -339,24 +357,7 @@ if not df.empty:
             current_state = 90
         allocations.append(current_state)
 
-    df['Allocation_Pct'] = allocations
-    # --- BULLISH DIVERGENCE LOGIC ---
-    # We look for a 'Lower Low' in SPY and a 'Lower High' in HY Spread Stress
-    
-    # 1. Identify local 60-day lows for SPY and peaks for HY Spread
-    df['SPY_Low'] = df['SP500'].rolling(window=60).min()
-    df['HY_Peak'] = df['HY_Spread'].rolling(window=60).max()
-    
-    # 2. Check if current SPY is a new low but HY Spread is NOT a new peak
-    # This implies the credit market is 'healing' while stocks are still 'bleeding'
-    spy_making_new_low = df['SP500'] <= df['SPY_Low']
-    hy_not_confirming = df['HY_Spread'] < df['HY_Peak']
-    
-    # 3. The Signal: Divergence exists when stocks panic but credit stays calm
-    df['Bull_Divergence'] = (spy_making_new_low & hy_not_confirming).astype(int)
-    
-    # 4. Persistence: Signal is valid if seen at least 3 times in the last 10 days
-    df['Divergence_Signal'] = df['Bull_Divergence'].rolling(window=10).sum() >= 3
+
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
 all_dates = df.index
