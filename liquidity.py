@@ -295,7 +295,6 @@ if not df.empty:
         df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
     else:
         df['SMA_Spread'] = 0.0
-    df['Allocation_Pct'] = allocations
     # --- BULLISH DIVERGENCE LOGIC ---
     df['SPY_Low'] = df['SP500'].rolling(window=60).min()
     df['HY_Peak'] = df['HY_Spread'].rolling(window=60).max()
