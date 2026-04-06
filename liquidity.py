@@ -352,7 +352,7 @@ if all_dates.max() not in timeline:
 start_s, end_s = st.select_slider(
     "Select Period", 
     options=timeline, 
-    value=(timeline[-121], timeline[-1]), 
+    value=(timeline[-361], timeline[-1]), 
     format_func=lambda x: x.strftime('%Y-%m')
 )
 
