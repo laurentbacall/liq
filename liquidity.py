@@ -296,15 +296,15 @@ if not df.empty:
     else:
         df['SMA_Spread'] = 0.0
     # --- BULLISH DIVERGENCE LOGIC ---
-    df['SPY_Low'] = df['SP500'].rolling(window=60).min()
-    df['HY_Peak'] = df['HY_Spread'].rolling(window=60).max()
+    df['SPY_Low'] = df['SP500'].rolling(window=250).min()
+    df['HY_Peak'] = df['HY_Spread'].rolling(window=250).max()
     spy_making_new_low = df['SP500'] <= df['SPY_Low']
     hy_not_confirming = df['HY_Spread'] < df['HY_Peak']
     df['Bull_Divergence'] = (spy_making_new_low & hy_not_confirming).astype(int)
     df['Divergence_Signal'] = df['Bull_Divergence'].rolling(window=10).sum() >= 3
 
     # --- DYNAMIC ALLOCATION LOGIC ---
-    allocations = [] # <--- DEFINED BEFORE USE
+    allocations = []
     current_state = 90 
     
     # Leverage Calculations for Exit
