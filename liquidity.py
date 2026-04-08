@@ -331,8 +331,6 @@ if not df.empty:
     n_months = 6  
     m_months = 6  
     
-    # Calculate the step size per month (not per day)
-    # We want to move 80% total over N months
     exit_step_monthly = 80 / n_months   
     entry_step_monthly = 80 / m_months
 
@@ -340,28 +338,25 @@ if not df.empty:
     current_alloc = 90.0
     target_alloc = 90.0 
 
-    # Get the list of last trading days for each month in the dataset
-    last_days = df.resample('ME').index
+    # FIX: Get the actual index labels for the last day of each month
+    last_days = df.resample('ME').last().index
 
     for i in range(len(df)):
         current_date = df.index[i]
         
-        # 1. Update the Target based on signals (Signals can happen any day)
+        # 1. Update Target (can change any day)
         if exit_trigger.iloc[i]:
             target_alloc = 10.0
         elif reentry_trigger.iloc[i]:
             target_alloc = 90.0
             
-        # 2. ONLY update the actual allocation if it is the last trading day of the month
+        # 2. Update actual allocation ONLY on the last trading day of the month
         if current_date in last_days:
             if current_alloc > target_alloc:
-                # Move down by the monthly step
                 current_alloc = max(target_alloc, current_alloc - exit_step_monthly)
             elif current_alloc < target_alloc:
-                # Move up by the monthly step
                 current_alloc = min(target_alloc, current_alloc + entry_step_monthly)
         
-        # On all other days, current_alloc remains unchanged from the previous iteration
         allocations.append(current_alloc)
 
     df['Allocation_Pct'] = allocations
