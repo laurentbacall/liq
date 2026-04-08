@@ -532,7 +532,7 @@ ax2_lev.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 
 # 6-10
-axes[5].plot(p_df.index, get_s('Fed net_Liq'), color='darkgreen'); format_ax(axes[5], "5. Net Liquidity Path")
+axes[5].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[5], "FED Net Liq")
 # 5. Short-Term Rates vs Inflation
 axes[4].plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %', zorder=5)
 axes[4].plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate', alpha=0.8)
