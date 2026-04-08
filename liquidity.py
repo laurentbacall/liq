@@ -333,12 +333,12 @@ if not df.empty:
     n_months = 6  
     m_months = 6  
     
-    exit_step_monthly = 80 / n_months   
-    entry_step_monthly = 80 / m_months
+    exit_step_monthly = 90 / n_months   
+    entry_step_monthly = 90 / m_months
 
     allocations = []
-    current_alloc = 90.0
-    target_alloc = 90.0 
+    current_alloc = 100.0
+    target_alloc = 100.0 
 
     # FIX: Get the actual index labels for the last day of each month
     last_days = df.resample('ME').last().index
@@ -350,7 +350,7 @@ if not df.empty:
         if exit_trigger.iloc[i]:
             target_alloc = 10.0
         elif reentry_trigger.iloc[i]:
-            target_alloc = 90.0
+            target_alloc = 100.0
             
         # 2. Update actual allocation ONLY on the last trading day of the month
         if current_date in last_days:
@@ -427,7 +427,7 @@ if 'SP500_SMA200' in p_df.columns:
 if 'SP500_SMA50' in p_df.columns:
     axes[0].plot(p_df.index, p_df['SP500_SMA50'], color='blue', ls=':', lw=1.2, label='50D SMA')
 axes[0].legend(loc='upper left')
-format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
+format_ax(axes[0], "S&P 500, 50-d & 200-d SMA", use_log=True)
 
 # 2 Allocation 
 # 2. Allocation & Performance Comparison
