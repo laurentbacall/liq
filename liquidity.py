@@ -428,45 +428,45 @@ axes[0].legend(loc='upper left')
 format_ax(axes[0], "1. S&P 500 (Log) vs 200D SMA", use_log=True)
 
 # 2 Allocation 
-#axes[1].plot(p_df.index, get_s('Allocation_Pct'), color='blue', lw=1.5); format_ax(axes[1], "2. System Allocation %")
 # 2. Allocation & Performance Comparison
 ax1 = axes[1]
 ax1_twin = ax1.twinx()
 
-# Plot Allocation % (Background Fill)
+# Re-basing: Calculate growth relative to the start of the visible slider period
+strat_series = get_s('Strategy_Cum')
+spy_series = get_s('SPY_Cum')
+
+strat_start_val = strat_series.iloc[0]
+spy_start_val = spy_series.iloc[0]
+
+# Calculate final dollar values for the labels
+strategy_final_dollar = strat_series.iloc[-1] / strat_start_val
+spy_final_dollar = spy_series.iloc[-1] / spy_start_val
+
+# Background Fill: Allocation %
 ax1.fill_between(p_df.index, get_s('Allocation_Pct'), 0, color='blue', alpha=0.05, label='Allocation %')
 ax1.set_ylim(0, 110)
 ax1.set_ylabel('Allocation %', fontsize=10)
 
-# RE-BASING: Force both lines to start at 1.0 for the selected period
-strat_start = p_df['Strategy_Cum'].iloc[0]
-spy_start = p_df['SPY_Cum'].iloc[0]
+# Lines: Performance (Log Scale)
+ax1_twin.plot(p_df.index, strat_series / strat_start_val, 
+              color='navy', lw=1, label=f'Tactical Strategy: ${strategy_final_dollar:.2f}')
+ax1_twin.plot(p_df.index, spy_series / spy_start_val, 
+              color='gray', lw=1, alpha=0.7, label=f'S&P 500: ${spy_final_dollar:.2f}')
 
-strategy_final = p_df['Strategy_Cum'].iloc[-1] / strat_start
-spy_final = p_df['SPY_Cum'].iloc[-1] / spy_start
-
-# Strategy Line with Final Value in Label
-ax1_twin.plot(p_df.index, p_df['Strategy_Cum'] / strat_start, 
-              color='navy', lw=1.5, label=f'Tactical Strategy: ${strategy_final:.2f}')
-
-# S&P Line with Final Value in Label
-ax1_twin.plot(p_df.index, p_df['SPY_Cum'] / spy_start, 
-              color='gray', lw=1, alpha=0.7, label=f'S&P 500: ${spy_final:.2f}')
-
-# Final Touch: Add text annotations at the end of the lines
-ax1_twin.text(p_df.index[-1], strategy_final, f' ${strategy_final:.2f}', color='navy', fontweight='bold')
-ax1_twin.text(p_df.index[-1], spy_final, f' ${spy_final:.2f}', color='gray')
+# Data Labels: Place text at the end of the lines
+ax1_twin.text(p_df.index[-1], strategy_final_dollar, f' ${strategy_final_dollar:.2f}', 
+              color='navy', fontweight='bold', va='center')
+ax1_twin.text(p_df.index[-1], spy_final_dollar, f' ${spy_final_dollar:.2f}', 
+              color='gray', va='center')
 
 ax1_twin.set_yscale('log')
-ax1_twin.set_ylabel('Growth of $1', fontsize=10)
-format_ax(ax1, "2. Strategy vs. S&P 500 Benchmark (Re-based to $1)")
+ax1_twin.set_ylabel('Growth of $1 (Log Scale)', fontsize=10)
+format_ax(ax1, "2. Tactical Strategy vs. S&P 500 Performance")
 
-# Combined Legend
-lines, labels = ax1.get_legend_handles_labels()
-lines2, labels2 = ax1_twin.get_legend_handles_labels()
+# Legends
 ax1.legend(loc='upper left', fontsize=9)
-ax1.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
-
+ax1_twin.legend(loc='lower left', fontsize=9)
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
 # 5. HY Spread (Inverted) + HY Z-Score
