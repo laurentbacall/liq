@@ -1,3 +1,5 @@
+# Todo: delay by one month (for the data to be available)
+# Todo: see to make it run locally 
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,9 +15,9 @@ from matplotlib.ticker import ScalarFormatter
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
-st.title("🛡️ Institutional Risk & Liquidity Monitor")
+st.title("🛡️ SP500 allocation model")
 
-# REQ: Font safety
+# REQ: Font safety 
 plt.rcParams['mathtext.fontset'] = 'dejavusans'
 plt.rcParams['font.family'] = 'sans-serif'
 
@@ -475,29 +477,29 @@ ax1_twin.legend(loc='upper left', fontsize=9)
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
 # 5. HY Spread (Inverted) + HY Z-Score (Moved to axes[4])
-ax4 = axes[4]
-ax4_twin = ax4.twinx()  # Create secondary axis
+ax6 = axes[6]
+ax6_twin = ax6.twinx()  # Create secondary axis
 
 # Plot HY Spread (Primary - Left Axis)
-ax4.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
-ax4.invert_yaxis() 
+ax6.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
+ax6.invert_yaxis() 
 
 # Plot HY Z-Score (Secondary - Right Axis)
 # We use a semi-transparent line to keep the chart clean
-ax4_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
-ax4_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
+ax6_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
+ax6_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
 
 # Formatting
-format_ax(ax4, "5. HY Spread (Inverted) & HY Z-Score")
+format_ax(ax6, "HY Spread (Inverted) & HY Z-Score")
 
 # Adjust right-side labels for the twin axis
-ax4_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
-ax4_twin.tick_params(axis='y', labelsize=9)
+ax6_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
+ax6_twin.tick_params(axis='y', labelsize=9)
 
 # Combine legends from both axes
-lines, labels = ax4.get_legend_handles_labels()
-lines2, labels2 = ax4_twin.get_legend_handles_labels()
-ax4.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
+lines, labels = ax6.get_legend_handles_labels()
+lines2, labels2 = ax6_twin.get_legend_handles_labels()
+ax6.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # 6. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score (Moved to axes[2])
 ax2_lev = axes[2]
@@ -530,14 +532,14 @@ ax2_lev.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 
 # 6-10
-axes[4].plot(p_df.index, get_s('Net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
+axes[5].plot(p_df.index, get_s('Fed net_Liq'), color='darkgreen'); format_ax(axes[4], "5. Net Liquidity Path")
 # 5. Short-Term Rates vs Inflation
-axes[5].plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %', zorder=5)
-axes[5].plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate', alpha=0.8)
-axes[5].axhline(0, color='gray', lw=0.5, alpha=0.5)
-format_ax(axes[5], "6a. Short-Term: 3M Rate vs. CPI YoY")
-axes[5].legend(loc='upper left', fontsize=9)
-axes[5].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+axes[4].plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %', zorder=5)
+axes[4].plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate', alpha=0.8)
+axes[4].axhline(0, color='gray', lw=0.5, alpha=0.5)
+format_ax(axes[4], "3M Rate vs. CPI YoY")
+axes[4].legend(loc='upper left', fontsize=9)
+axes[4].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
 # 6. Medium & Long-Term Yields
 axes[6].plot(p_df.index, get_s('Fed_2Y'), color='royalblue', lw=1.2, label='2Y Rate')
