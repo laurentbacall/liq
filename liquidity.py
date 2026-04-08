@@ -500,7 +500,7 @@ ax7_twin.tick_params(axis='y', labelsize=9)
 # Combine legends from both axes
 lines, labels = ax7.get_legend_handles_labels()
 lines2, labels2 = ax7_twin.get_legend_handles_labels()
-ax6.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
+ax7.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # 6. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score (Moved to axes[2])
 ax2_lev = axes[2]
