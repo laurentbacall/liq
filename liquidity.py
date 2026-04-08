@@ -327,25 +327,32 @@ if not df.empty:
     reentry_trigger = vix_high_peak & vix_below_sma
     # --- DYNAMIC ALLOCATION LOGIC ---
     # --- 1. CONFIGURATION PARAMETERS ---
-    n_months = 6  # Exit duration
-    m_months = 6  # Entry duration
+    # --- CONFIGURATION ---
+    n_months = 6  
+    m_months = 6  
     
-    # Calculate daily step sizes (assuming ~21 trading days per month)
-    exit_step = 80 / n_months   # Drop from 90 to 10
-    entry_step = 80 / m_months  # Rise from 10 to 90
+    # Steps per day to reach target over N months
+    exit_step = 80 / (n_months * 21)   
+    entry_step = 80 / (m_months * 21)
 
-    # --- 2. STAGED ALLOCATION LOOP ---
     allocations = []
-    current_alloc = 90.0  # Start at full tilt
-    
+    current_alloc = 90.0
+    target_alloc = 90.0 # <--- NEW: track where we WANT to be
+
     for i in range(len(df)):
-        # EXIT LOGIC: If signal is on, move toward 10%
+        # 1. Update the Target based on signals
         if exit_trigger.iloc[i]:
-            current_alloc = max(10.0, current_alloc - exit_step)
-        
-        # RE-ENTRY LOGIC: If re-entry signal is on, move toward 90%
+            target_alloc = 10.0
         elif reentry_trigger.iloc[i]:
-            current_alloc = min(90.0, current_alloc + entry_step)
+            target_alloc = 90.0
+            
+        # 2. Move current allocation toward the target
+        if current_alloc > target_alloc:
+            # We are exiting: subtract step until we hit 10
+            current_alloc = max(target_alloc, current_alloc - exit_step)
+        elif current_alloc < target_alloc:
+            # We are re-entering: add step until we hit 90
+            current_alloc = min(target_alloc, current_alloc + entry_step)
             
         allocations.append(current_alloc)
 
