@@ -589,39 +589,40 @@ fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)
 
 # --- UNIVERSAL FORMATTING, GRID & SHADING ---
 
-# 1. Calculate zoom level based on the slider selection
+# 1. Calculate zoom level
 visible_days = (p_df.index[-1] - p_df.index[0]).days
 
-# 2. Define Locators based on your requested thresholds
+# 2. Define Locators
 if visible_days <= 92:
-    # Quarter or less: Mondays (Major), Days (Minor)
+    # Quarter or less: 
+    # Major = Mondays
     major_loc = mdates.WeekdayLocator(byweekday=mdates.MO)
-    minor_loc = mdates.DayLocator()
+    # Minor = Monday, Tuesday, Wednesday, Thursday, Friday (Skipping Sat/Sun)
+    minor_loc = mdates.WeekdayLocator(byweekday=(mdates.MO, mdates.TU, mdates.WE, mdates.TH, mdates.FR))
     date_fmt = mdates.DateFormatter('%b %d')
 elif visible_days <= 730:
-    # 2 Years or less: Months (Major), Mondays (Minor)
+    # 2 Years or less: Major = Months, Minor = Mondays
     major_loc = mdates.MonthLocator()
     minor_loc = mdates.WeekdayLocator(byweekday=mdates.MO)
     date_fmt = mdates.DateFormatter('%b %Y')
 else:
-    # Default: Years (Major), Quarters (Minor)
+    # Default: Major = Years, Minor = Quarters
     major_loc = mdates.YearLocator()
     minor_loc = mdates.MonthLocator(bymonth=(1, 4, 7, 10))
     date_fmt = mdates.DateFormatter('%Y')
 
 # 3. Apply to all axes
 for ax in axes:
-    # Set the dynamic locators
     ax.xaxis.set_major_locator(major_loc)
     ax.xaxis.set_minor_locator(minor_loc)
     ax.xaxis.set_major_formatter(date_fmt)
     
-    # Major Grid: Darker, solid lines
+    # Major Grid: Solid
     ax.grid(visible=True, which='major', axis='x', color='gray', linestyle='-', alpha=0.3)
-    # Minor Grid: Lighter, dotted lines
+    # Minor Grid: Dotted (This will now only show 5 lines per week on the 1-quarter view)
     ax.grid(visible=True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.15)
 
-    # Shading for Bear Markets (stays independent of grid)
+    # Shading for Bear Markets
     for start, end in bear_episodes:
         ax.axvspan(start, end, color='gray', alpha=0.15)
 
