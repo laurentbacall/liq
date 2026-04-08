@@ -326,28 +326,37 @@ if not df.empty:
     #reentry_trigger = df['Divergence_Signal'] & (death_cross)
     reentry_trigger = vix_high_peak & vix_below_sma
     # --- DYNAMIC ALLOCATION LOGIC ---
-    allocations = []
-    current_state = 90
-    # The Loop
-    for i in range(len(df)):
-        if current_state == 90 and exit_trigger.iloc[i]:
-            current_state = 10
-        elif current_state == 10 and reentry_trigger.iloc[i]:
-            current_state = 90
-        allocations.append(current_state)
+    # --- 1. CONFIGURATION PARAMETERS ---
+    n_months = 6  # Exit duration
+    m_months = 6  # Entry duration
+    
+    # Calculate daily step sizes (assuming ~21 trading days per month)
+    exit_step = 80 / (n_months * 21)   # Drop from 90 to 10
+    entry_step = 80 / (m_months * 21)  # Rise from 10 to 90
 
-    # 2. Assign to Dataframe (After the loop finishes)
+    # --- 2. STAGED ALLOCATION LOOP ---
+    allocations = []
+    current_alloc = 90.0  # Start at full tilt
+    
+    for i in range(len(df)):
+        # EXIT LOGIC: If signal is on, move toward 10%
+        if exit_trigger.iloc[i]:
+            current_alloc = max(10.0, current_alloc - exit_step)
+        
+        # RE-ENTRY LOGIC: If re-entry signal is on, move toward 90%
+        elif reentry_trigger.iloc[i]:
+            current_alloc = min(90.0, current_alloc + entry_step)
+            
+        allocations.append(current_alloc)
+
     df['Allocation_Pct'] = allocations
 
-    # --- PERFORMANCE CALCULATIONS ---
+    # --- 3. PERFORMANCE & FINAL VALUE CALCULATION ---
     if 'SP500' in df.columns:
-        # 1. Calculate daily market returns
         df['Market_Returns'] = df['SP500'].pct_change().fillna(0)
-        
-        # 2. Strategy Returns (Multiplied by Allocation %)
         df['Strategy_Returns'] = df['Market_Returns'] * (df['Allocation_Pct'] / 100)
         
-        # 3. Cumulative Growth (Compounded)
+        # Growth of $1
         df['Strategy_Cum'] = (1 + df['Strategy_Returns']).cumprod()
         df['SPY_Cum'] = (1 + df['Market_Returns']).cumprod()
 
@@ -423,13 +432,20 @@ ax1.set_ylabel('Allocation %', fontsize=10)
 strat_start = p_df['Strategy_Cum'].iloc[0]
 spy_start = p_df['SPY_Cum'].iloc[0]
 
-# Plot Strategy Performance
-ax1_twin.plot(p_df.index, p_df['Strategy_Cum'] / strat_start, 
-              color='navy', lw=1, label='Tactical Strategy')
+strategy_final = p_df['Strategy_Cum'].iloc[-1] / strat_start
+spy_final = p_df['SPY_Cum'].iloc[-1] / spy_start
 
-# Plot S&P 500 Benchmark
+# Strategy Line with Final Value in Label
+ax1_twin.plot(p_df.index, p_df['Strategy_Cum'] / strat_start, 
+              color='navy', lw=1.5, label=f'Tactical Strategy: ${strategy_final:.2f}')
+
+# S&P Line with Final Value in Label
 ax1_twin.plot(p_df.index, p_df['SPY_Cum'] / spy_start, 
-              color='gray', lw=1, alpha=0.7, label='S&P 500 (Buy & Hold)')
+              color='gray', lw=1, alpha=0.7, label=f'S&P 500: ${spy_final:.2f}')
+
+# Final Touch: Add text annotations at the end of the lines
+ax1_twin.text(p_df.index[-1], strategy_final, f' ${strategy_final:.2f}', color='navy', fontweight='bold')
+ax1_twin.text(p_df.index[-1], spy_final, f' ${spy_final:.2f}', color='gray')
 
 ax1_twin.set_yscale('log')
 ax1_twin.set_ylabel('Growth of $1', fontsize=10)
@@ -438,6 +454,7 @@ format_ax(ax1, "2. Strategy vs. S&P 500 Benchmark (Re-based to $1)")
 # Combined Legend
 lines, labels = ax1.get_legend_handles_labels()
 lines2, labels2 = ax1_twin.get_legend_handles_labels()
+ax1.legend(loc='upper left', fontsize=9)
 ax1.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
