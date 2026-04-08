@@ -425,12 +425,13 @@ spy_start = p_df['SPY_Cum'].iloc[0]
 
 # Plot Strategy Performance
 ax1_twin.plot(p_df.index, p_df['Strategy_Cum'] / strat_start, 
-              color='navy', lw=2, label='Tactical Strategy')
+              color='navy', lw=1, label='Tactical Strategy')
 
 # Plot S&P 500 Benchmark
 ax1_twin.plot(p_df.index, p_df['SPY_Cum'] / spy_start, 
-              color='gray', lw=1.5, ls='--', alpha=0.7, label='S&P 500 (Buy & Hold)')
+              color='gray', lw=1, alpha=0.7, label='S&P 500 (Buy & Hold)')
 
+ax1_twin.set_yscale('log')
 ax1_twin.set_ylabel('Growth of $1', fontsize=10)
 format_ax(ax1, "2. Strategy vs. S&P 500 Benchmark (Re-based to $1)")
 
