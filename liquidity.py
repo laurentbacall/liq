@@ -1,5 +1,6 @@
 # Todo: delay by one month (for the data to be available)
 # Todo: see to make it run locally 
+# Todo: See to include BRK-B
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -477,28 +478,28 @@ ax1_twin.legend(loc='upper left', fontsize=9)
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
 # 5. HY Spread (Inverted) + HY Z-Score (Moved to axes[4])
-ax6 = axes[6]
-ax6_twin = ax6.twinx()  # Create secondary axis
+ax7 = axes[7]
+ax7_twin = ax7.twinx()  # Create secondary axis
 
 # Plot HY Spread (Primary - Left Axis)
-ax6.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
-ax6.invert_yaxis() 
+ax7.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
+ax7.invert_yaxis() 
 
 # Plot HY Z-Score (Secondary - Right Axis)
 # We use a semi-transparent line to keep the chart clean
-ax6_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
-ax6_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
+ax7_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
+ax7_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
 
 # Formatting
-format_ax(ax6, "HY Spread (Inverted) & HY Z-Score")
+format_ax(ax7, "HY Spread (Inverted) & HY Z-Score")
 
 # Adjust right-side labels for the twin axis
-ax6_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
-ax6_twin.tick_params(axis='y', labelsize=9)
+ax7_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
+ax7_twin.tick_params(axis='y', labelsize=9)
 
 # Combine legends from both axes
-lines, labels = ax6.get_legend_handles_labels()
-lines2, labels2 = ax6_twin.get_legend_handles_labels()
+lines, labels = ax7.get_legend_handles_labels()
+lines2, labels2 = ax7_twin.get_legend_handles_labels()
 ax6.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 # 6. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score (Moved to axes[2])
@@ -545,10 +546,10 @@ axes[4].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 axes[8].plot(p_df.index, get_s('Fed_2Y'), color='royalblue', lw=1.2, label='2Y Rate')
 axes[8].plot(p_df.index, get_s('Fed_10Y'), color='darkblue', lw=1.2, label='10Y Rate')
 axes[8].axhline(0, color='gray', lw=0.5, alpha=0.5)
-format_ax(axes[8], "6b. Term Structure: 2Y and 10Y Rates")
+format_ax(axes[8], "2Y and 10Y Rates")
 axes[8].legend(loc='upper left', fontsize=9)
 axes[8].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
-axes[8].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[7], "Real M2 YoY Growth")
+axes[6].plot(p_df.index, get_s('M2_Real_Growth'), color='purple'); format_ax(axes[6], "Real M2 YoY Growth")
 #axes[8].plot(p_df.index, get_s('Real_10Y_Yield'), color='darkblue'); format_ax(axes[8], "7. Real 10Y Yield")
 #axes[8].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 # 8. Yield Curves (10Y-2Y and 2Y-3M)
