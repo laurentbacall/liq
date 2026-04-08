@@ -474,56 +474,59 @@ ax1.legend(loc='upper left', fontsize=9)
 ax1_twin.legend(loc='upper left', fontsize=9)
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
-# 5. HY Spread (Inverted) + HY Z-Score
-ax2 = axes[2]
-ax2_twin = ax2.twinx()  # Create secondary axis
+# 5. HY Spread (Inverted) + HY Z-Score (Moved to axes[4])
+ax4 = axes[4]
+ax4_twin = ax4.twinx()  # Create secondary axis
 
 # Plot HY Spread (Primary - Left Axis)
-ax2.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
-ax2.invert_yaxis() 
+ax4.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
+ax4.invert_yaxis() 
 
 # Plot HY Z-Score (Secondary - Right Axis)
-# We use a semi-transparent fill or a dashed line to keep it readable
-ax2_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
-ax2_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
+# We use a semi-transparent line to keep the chart clean
+ax4_twin.plot(p_df.index, get_s('HY_Z'), color='gray', lw=1, alpha=0.5, label='HY Z-Score')
+ax4_twin.axhline(0, color='black', lw=0.5, alpha=0.3) # Zero line for Z-score
 
 # Formatting
-format_ax(ax2, "5. HY Spread (Inverted) & HY Z-Score")
+format_ax(ax4, "5. HY Spread (Inverted) & HY Z-Score")
 
 # Adjust right-side labels for the twin axis
-ax2_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
-ax2_twin.tick_params(axis='y', labelsize=9)
+ax4_twin.set_ylabel('Z-Score', fontsize=10, alpha=0.7)
+ax4_twin.tick_params(axis='y', labelsize=9)
 
 # Combine legends from both axes
-lines, labels = ax2.get_legend_handles_labels()
-lines2, labels2 = ax2_twin.get_legend_handles_labels()
-ax2.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
+lines, labels = ax4.get_legend_handles_labels()
+lines2, labels2 = ax4_twin.get_legend_handles_labels()
+ax4.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
-# 11. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score
-ax3 = axes[3]
-ax3_twin = ax3.twinx()
+# 6. Leverage Proxy: Margin Debt / W5000 Ratio & Z-Score (Moved to axes[2])
+ax2_lev = axes[2]
+ax2_lev_twin = ax2_lev.twinx()
 
 # Plot Raw Ratio (Left Axis - Purple)
-ax3.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
-ax3.set_ylabel('Raw Ratio', color='purple', fontsize=10)
+ax2_lev.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+ax2_lev.set_ylabel('Raw Ratio', color='purple', fontsize=10)
 
 # Plot Z-Score (Right Axis - Firebrick)
-ax3_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
-ax3_twin.axhline(0, color='black', lw=1, alpha=0.5)
-ax3_twin.axhline(2, color='red', ls='--', alpha=0.5) # Danger Zone (+2 Sigma)
-ax3_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
+ax2_lev_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Ratio Z-Score')
+ax2_lev_twin.axhline(0, color='black', lw=1, alpha=0.5)
+ax2_lev_twin.axhline(2, color='red', ls='--', alpha=0.5)   # Danger Zone (+2 Sigma)
+ax2_lev_twin.axhline(-2, color='blue', ls='--', alpha=0.5) # De-leveraging (-2 Sigma)
 
 # Shading for high-leverage "Danger Zones"
-ax3_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
-                       where=(get_s('Margin_Ratio_Z') >= 2), 
-                       color='red', alpha=0.2, interpolate=True)
+ax2_lev_twin.fill_between(p_df.index, get_s('Margin_Ratio_Z'), 2, 
+                        where=(get_s('Margin_Ratio_Z') >= 2), 
+                        color='red', alpha=0.2, interpolate=True)
 
-format_ax(ax3, "6. Leverage Proxy (Margin Debt / Wilshire 5000)")
+format_ax(ax2_lev, "3. Leverage Proxy (Margin Debt / Wilshire 5000)")
+
+# Adjust right-side labels for the twin axis
+ax2_lev_twin.set_ylabel('Z-Score', fontsize=10, color='firebrick')
 
 # Combine Legends
-lines, labels = ax3.get_legend_handles_labels()
-lines2, labels2 = ax3_twin.get_legend_handles_labels()
-ax3.legend(lines + lines2, labels + labels2, loc='upper left')
+lines, labels = ax2_lev.get_legend_handles_labels()
+lines2, labels2 = ax2_lev_twin.get_legend_handles_labels()
+ax2_lev.legend(lines + lines2, labels + labels2, loc='upper left', fontsize=9)
 
 
 # 6-10
@@ -560,13 +563,13 @@ axes[10].plot(p_df.index, get_s('USDEUR_FULL'), color='navy'); format_ax(axes[10
 axes[10].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 axes[11].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[11], "9. USD Index")
 #axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[12], "10. VIX")
-# 10. VIX & Re-entry Signal
-axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.3, label='VIX')
-axes[12].plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA')
-axes[12].axhline(40, color='black', ls=':', alpha=0.5, label='Panic Line (40)')
+# 4. VIX & Re-entry Signal (Moved to axes[3])
+axes[3].plot(p_df.index, get_s('VIX'), color='red', alpha=0.3, label='VIX')
+axes[3].plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA')
+axes[3].axhline(40, color='black', ls=':', alpha=0.5, label='Panic Line (40)')
 
-format_ax(axes[12], "10. VIX & Re-entry Signal (VIX < 14D SMA after 40 Peak)")
-axes[12].legend(loc='upper left', fontsize=8)
+format_ax(axes[3], "4. VIX & Re-entry Signal (VIX < 14D SMA after 40 Peak)")
+axes[3].legend(loc='upper left', fontsize=8)
 axes[13].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[13], "11. Funding Stress")
 # 15. SMA Spread (50D - 200D)
 axes[14].plot(p_df.index, get_s('SMA_Spread'), color='black', lw=1, label='50D - 200D')
