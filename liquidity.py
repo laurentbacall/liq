@@ -8,14 +8,16 @@ import yfinance as yf
 import os
 from fredapi import Fred
 from matplotlib.ticker import FormatStrFormatter
+from matplotlib.ticker import LogFormatterExponent
+from matplotlib.ticker import ScalarFormatter
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
 st.title("🛡️ Institutional Risk & Liquidity Monitor")
 
 # REQ: Font safety
-plt.rcParams['mathtext.fontset'] = 'stix'
-plt.rcParams['font.family'] = 'STIXGeneral'
+plt.rcParams['mathtext.fontset'] = 'dejavusans'
+plt.rcParams['font.family'] = 'sans-serif'
 
 if "FRED_API_KEY" in st.secrets:
     api_key = st.secrets["FRED_API_KEY"]
@@ -461,12 +463,15 @@ ax1_twin.text(p_df.index[-1], spy_final_dollar, f' ${spy_final_dollar:.2f}',
               color='gray', va='center')
 
 ax1_twin.set_yscale('log')
+#formatter = LogFormatterExponent(base=10)
+#ax1_twin.yaxis.set_major_formatter(formatter)
+ax1_twin.yaxis.set_major_formatter(ScalarFormatter())
 ax1_twin.set_ylabel('Growth of $1 (Log Scale)', fontsize=10)
 format_ax(ax1, "2. Tactical Strategy vs. S&P 500 Performance")
 
 # Legends
 ax1.legend(loc='upper left', fontsize=9)
-ax1_twin.legend(loc='lower left', fontsize=9)
+ax1_twin.legend(loc='upper left', fontsize=9)
 # axes[4].plot(p_df.index, get_s('HY_Spread'), color='orange'); axes[4].invert_yaxis(); format_ax(axes[4], "5. HY Spread (Inverted)")
 
 # 5. HY Spread (Inverted) + HY Z-Score
@@ -576,7 +581,8 @@ axes[14].axhline(0, color='black', lw=1) # Zero line
 format_ax(axes[14], "15. SMA Momentum (50D SMA - 200D SMA)")
 axes[14].legend(loc='upper left', fontsize=9)
 
-plt.tight_layout(pad=4.0)
+#plt.tight_layout(pad=4.0)
+fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)
 
 # --- 4. UNIVERSAL BEAR MARKET SHADING (No Legend) ---
 for ax in axes:
