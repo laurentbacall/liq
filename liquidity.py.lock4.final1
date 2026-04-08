@@ -404,12 +404,18 @@ plt.subplots_adjust(hspace=0.35)
 
 def format_ax(ax, title, use_log=False):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=14)
+    ax.set_xlim(p_df.index.min(), p_df.index.max()) # <--- LOCK THE SCALE
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator(bymonth=(1, 4, 7, 10)))
+    ax.grid(True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.2)
+    ax.grid(True, which='major', axis='x', color='gray', linestyle='-', alpha=0.4)
     ax.grid(True, which='major', axis='y', alpha=0.4)
-    # LOCK THE SCALE to the slider selection
+    # FORCE ALIGNMENT: Every chart must have the same start/end points
     ax.set_xlim(start_s, end_s)
-    
     if use_log:
         ax.set_yscale('log')
+        # REQ: 1,000 Point Intervals
         ax.yaxis.set_major_locator(MultipleLocator(1000))
     
     if 'Recessions' in p_df.columns:
@@ -587,43 +593,14 @@ axes[14].legend(loc='upper left', fontsize=9)
 #plt.tight_layout(pad=4.0)
 fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)
 
-# --- UNIVERSAL FORMATTING, GRID & SHADING ---
-
-# 1. Calculate zoom level based on the slider selection
-visible_days = (p_df.index[-1] - p_df.index[0]).days
-
-# 2. Define Locators based on your requested thresholds
-if visible_days <= 92:
-    # Quarter or less: Mondays (Major), Days (Minor)
-    major_loc = mdates.WeekdayLocator(byweekday=mdates.MO)
-    minor_loc = mdates.DayLocator()
-    date_fmt = mdates.DateFormatter('%b %d')
-elif visible_days <= 730:
-    # 2 Years or less: Months (Major), Mondays (Minor)
-    major_loc = mdates.MonthLocator()
-    minor_loc = mdates.WeekdayLocator(byweekday=mdates.MO)
-    date_fmt = mdates.DateFormatter('%b %Y')
-else:
-    # Default: Years (Major), Quarters (Minor)
-    major_loc = mdates.YearLocator()
-    minor_loc = mdates.MonthLocator(bymonth=(1, 4, 7, 10))
-    date_fmt = mdates.DateFormatter('%Y')
-
-# 3. Apply to all axes
+# --- 4. UNIVERSAL BEAR MARKET SHADING (No Legend) ---
 for ax in axes:
-    # Set the dynamic locators
-    ax.xaxis.set_major_locator(major_loc)
-    ax.xaxis.set_minor_locator(minor_loc)
-    ax.xaxis.set_major_formatter(date_fmt)
-    
-    # Major Grid: Darker, solid lines
-    ax.grid(visible=True, which='major', axis='x', color='gray', linestyle='-', alpha=0.3)
-    # Minor Grid: Lighter, dotted lines
-    ax.grid(visible=True, which='minor', axis='x', color='gray', linestyle=':', alpha=0.15)
-
-    # Shading for Bear Markets (stays independent of grid)
     for start, end in bear_episodes:
+        # We removed the 'label' argument so it stays out of the legend
         ax.axvspan(start, end, color='gray', alpha=0.15)
+
+# Ensure no bear market legend code remains
+# (Delete any axes[0].legend(...) specifically for bear markets)
 
 st.pyplot(fig)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
