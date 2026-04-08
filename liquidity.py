@@ -331,8 +331,8 @@ if not df.empty:
     m_months = 6  # Entry duration
     
     # Calculate daily step sizes (assuming ~21 trading days per month)
-    exit_step = 80 / (n_months * 21)   # Drop from 90 to 10
-    entry_step = 80 / (m_months * 21)  # Rise from 10 to 90
+    exit_step = 80 / n_months   # Drop from 90 to 10
+    entry_step = 80 / m_months  # Rise from 10 to 90
 
     # --- 2. STAGED ALLOCATION LOOP ---
     allocations = []
@@ -544,7 +544,14 @@ axes[9].legend(loc='upper left', fontsize=9)
 axes[10].plot(p_df.index, get_s('USDEUR_FULL'), color='navy'); format_ax(axes[10], "9. USD/EUR")
 axes[10].yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 axes[11].plot(p_df.index, get_s('USD_Index'), color='navy'); format_ax(axes[11], "9. USD Index")
-axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[12], "10. VIX")
+#axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.6); format_ax(axes[12], "10. VIX")
+# 10. VIX & Re-entry Signal
+axes[12].plot(p_df.index, get_s('VIX'), color='red', alpha=0.3, label='VIX')
+axes[12].plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA')
+axes[12].axhline(40, color='black', ls=':', alpha=0.5, label='Panic Line (40)')
+
+format_ax(axes[12], "10. VIX & Re-entry Signal (VIX < 14D SMA after 40 Peak)")
+axes[12].legend(loc='upper left', fontsize=8)
 axes[13].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[13], "11. Funding Stress")
 # 15. SMA Spread (50D - 200D)
 axes[14].plot(p_df.index, get_s('SMA_Spread'), color='black', lw=1, label='50D - 200D')
