@@ -164,7 +164,7 @@ def get_master_data():
         return pd.DataFrame() 
 
     # 1. Join everything on the UNION of all dates
-    df = pd.concat(series_dict, axis=1).sort_index()
+    df = pd.concat(series_dict, axis=1, sort=True).sort_index()
 
     # 2. Forward fill monthly/weekly data (M2, CPI, FINRA) into daily slots
     df = df.ffill()
@@ -196,7 +196,8 @@ def calculate_bear_markets(series):
         # 2. Identify Peak and Trough
         trigger_date = slice_df.index[trigger_mask][0]
         peak_val = slice_df.loc[trigger_date, 'Rolling_Peak']
-        peak_date = slice_df[:trigger_date][slice_df['Price'] == peak_val].index[-1]
+        peak_mask = slice_df.loc[:trigger_date, 'Price'] == peak_val
+        peak_date = slice_df.loc[:trigger_date][peak_mask].index[-1]
         
         trough_price = slice_df.loc[trigger_date, 'Price']
         trough_date = trigger_date
@@ -430,7 +431,8 @@ def format_ax(ax, title, use_log=False):
     if use_log:
         ax.set_yscale('log')
     ax.tick_params(labelbottom=True)
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.2f}' if x < 10 else f'{x:,.0f}'))
+    #ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.2f}' if x < 10 else f'{x:,.0f}'))
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
 
 # 2. CREATE THE MAP
 ax_map = {name: axes[i] for i, name in enumerate(plot_order)}
@@ -617,33 +619,27 @@ for ax in axes:
 
 st.pyplot(fig)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
-# --- 6. DISPLAY WITH INTERACTIVE CROSSHAIR ---
-try:
-    # Convert Matplotlib figure to Plotly
-    plotly_fig = tls.mpl_to_plotly(fig)
 
-    # Enhance the interactive features
+# --- 6. DISPLAY LOGIC ---
+try:
+    # Attempt conversion
+    plotly_fig = tls.mpl_to_plotly(fig)
+    
+    # Configure the "Unified" crosshair
     plotly_fig.update_layout(
-        hovermode="x unified",  # This creates the vertical "hair cross" across all plots
-        dragmode="pan",         # Enables panning
-        height=len(plot_order) * 400, # Matches your intended height
-        margin=dict(l=50, r=50, t=50, b=50),
-        showlegend=True
+        hovermode="x unified", 
+        height=len(plot_order) * 350,
+        showlegend=True,
+        template="plotly_white"
     )
     
-    # Configure the crosshair style
-    plotly_fig.update_xaxes(
-        showspikes=True, 
-        spikemode="across", 
-        spikesnap="cursor", 
-        spikethickness=1, 
-        spikedash="dash",
-        spikecolor="#999999"
-    )
+    # Clean up axes spikes (the "hair cross")
+    plotly_fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor", spikedash="dot")
+    plotly_fig.update_yaxes(showspikes=True, spikemode="across", spikesnap="cursor", spikedash="dot")
 
     st.plotly_chart(plotly_fig, use_container_width=True)
 
 except Exception as e:
-    # Fallback to static if Plotly conversion fails due to Matplotlib complexity
-    st.sidebar.warning(f"Interactive mode failed: {e}. Showing static version.")
+    # If conversion fails, show the clean static version
+    st.error(f"Interactivity disabled due to: {e}")
     st.pyplot(fig)
