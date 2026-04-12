@@ -327,6 +327,17 @@ if not df.empty:
     df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
     df['Ratio_SMA20'] = df['RSP_SP500_Ratio'].rolling(window=20).mean()
     breadth_confirmed = df['RSP_SP500_Ratio'] > df['Ratio_SMA20']
+    # --- 3. CALCULATIONS (Updated Market Breadth) ---
+    df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
+    df['Ratio_SMA20'] = df['RSP_SP500_Ratio'].rolling(window=20).mean()
+
+    # Calculate the Spread here so it's available for the Re-entry logic
+    if not df['RSP_SP500_Ratio'].dropna().empty:
+        # We use a percentage-based spread so it's consistent across decades
+        # (Current Ratio / 20D Average - 1) * 100
+        df['Breadth_Spread'] = ((df['RSP_SP500_Ratio'] / df['Ratio_SMA20']) - 1) * 100
+    else:
+        df['Breadth_Spread'] = 0.0
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
     three_months_above_2 = (monthly_z > 2) & (monthly_z.shift(1) > 2) & (monthly_z.shift(2) > 2)
@@ -546,39 +557,22 @@ ax.plot(p_df.index, get_s('USD_Index'), color='navy')
 format_ax(ax, "USD Index (DXY)")
 
 # Breadth
-# --- 13. Market Breadth (Spread/Momentum Style) ---
+# --- 13. Market Breadth Plot (Simplified) ---
 ax = ax_map["Breadth"]
 
-# Check if RSP exists and has valid data in the current view
-if 'RSP_SP500_Ratio' in p_df.columns and not p_df['RSP_SP500_Ratio'].dropna().empty:
-    
-    # 1. Find the first date with data to handle the 100-base normalization
-    first_valid_date = p_df['RSP_SP500_Ratio'].first_valid_index()
-    ratio_start_val = p_df.loc[first_valid_date, 'RSP_SP500_Ratio']
-    
-    # 2. Calculate Normalized Spread (Ratio - SMA20)
-    # We normalize both to 100 first so the 'Spread' is in percentage points
-    breadth_norm = (p_df['RSP_SP500_Ratio'] / ratio_start_val) * 100
-    sma_norm = (p_df['Ratio_SMA20'] / ratio_start_val) * 100
-    p_df['Breadth_Spread'] = breadth_norm - sma_norm
-    
-    # 3. Plot the Spread as a centerline
-    ax.plot(p_df.index, p_df['Breadth_Spread'], color='black', lw=1, label='Breadth Momentum (Ratio - SMA)')
-    
-    # 4. Fill Areas: Green for expansion, Red for contraction
-    ax.fill_between(p_df.index, p_df['Breadth_Spread'], 0, 
-                    where=(p_df['Breadth_Spread'] >= 0), color='green', alpha=0.3)
-    ax.fill_between(p_df.index, p_df['Breadth_Spread'], 0, 
-                    where=(p_df['Breadth_Spread'] < 0), color='red', alpha=0.3)
-    
-    # Zero line for reference
-    ax.axhline(0, color='black', lw=1, alpha=0.5)
+# Use the pre-calculated spread from the sliced dataframe
+breadth_data = p_df['Breadth_Spread']
 
-else:
-    ax.text(0.5, 0.5, "RSP Data Not Available for this Period", 
-            transform=ax.transAxes, ha='center', alpha=0.5)
+ax.plot(p_df.index, breadth_data, color='black', lw=1, label='Breadth Momentum (%)')
 
-format_ax(ax, "Market Breadth Momentum (RSP/SP500 Ratio vs 20D SMA)")
+# Fill Areas
+ax.fill_between(p_df.index, breadth_data, 0, 
+                where=(breadth_data >= 0), color='green', alpha=0.3)
+ax.fill_between(p_df.index, breadth_data, 0, 
+                where=(breadth_data < 0), color='red', alpha=0.3)
+
+ax.axhline(0, color='black', lw=1, alpha=0.5)
+format_ax(ax, "Market Breadth Momentum (RSP/SP500 vs 20D SMA)")
 ax.legend(loc='upper left', fontsize=9)
 
 # Funding Stress
