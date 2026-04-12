@@ -539,6 +539,18 @@ ax_twin.yaxis.set_major_formatter(ScalarFormatter())
 format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
+# Leverage Proxy
+
+ax = ax_map["Leverage"]
+
+ax_twin = ax.twinx()
+
+ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+
+ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Z-Score')
+
+ax_twin.axhline(2, color='red', ls='dashed', alpha=0.5)
+
 # 3. Shade the excess (where Z-Score > 2)
 # We use ax_twin because the Z-Score data is on that scale
 ax_twin.fill_between(
