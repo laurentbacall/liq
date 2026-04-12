@@ -441,7 +441,7 @@ if 'SP500_SMA200' in p_df.columns:
 if 'SP500_SMA50' in p_df.columns:
     ax.plot(p_df.index, p_df['SP500_SMA50'], color='blue', ls=':', lw=1.2, label='50D SMA')
 ax.legend(loc='upper left')
-format_ax(ax, "1. S&P 500, 50-d & 200-d SMA", use_log=True)
+format_ax(ax, "S&P 500, 50-d & 200-d SMA", use_log=True)
 
 # Allocation & Performance
 ax = ax_map["Allocation"]
@@ -456,7 +456,7 @@ ax_twin.plot(p_df.index, strat_series / strat_start, color='navy', lw=1, label=f
 ax_twin.plot(p_df.index, spy_series / spy_start, color='gray', lw=1, alpha=0.7, label=f'S&P 500: ${spy_final:.2f}')
 ax_twin.set_yscale('log')
 ax_twin.yaxis.set_major_formatter(ScalarFormatter())
-format_ax(ax, "2. Tactical Strategy vs. S&P 500 Performance")
+format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
 # Leverage Proxy
@@ -465,30 +465,30 @@ ax_twin = ax.twinx()
 ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
 ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Z-Score')
 ax_twin.axhline(2, color='red', ls='--', alpha=0.5)
-format_ax(ax, "3. Leverage Proxy (Margin Debt / Wilshire 5000)")
+format_ax(ax, "Leverage Proxy (Margin Debt / Wilshire 5000)")
 
 # VIX
 ax = ax_map["VIX"]
 ax.plot(p_df.index, get_s('VIX'), color='red', alpha=0.3, label='VIX')
 ax.plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA')
 ax.axhline(40, color='black', ls=':', label='Panic Line (40)')
-format_ax(ax, "4. VIX & Re-entry Signal")
+format_ax(ax, "VIX & Re-entry Signal")
 
 # CPI vs 3M
 ax = ax_map["CPI_3M"]
 ax.plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %')
 ax.plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate')
-format_ax(ax, "5. 3M Rate vs. CPI YoY")
+format_ax(ax, "3M Rate vs. CPI YoY")
 
 # Net Liquidity
 ax = ax_map["Net_Liq"]
 ax.plot(p_df.index, get_s('Net_Liq'), color='darkgreen')
-format_ax(ax, "6. FED Net Liquidity")
+format_ax(ax, "FED Net Liquidity")
 
 # Real M2
 ax = ax_map["M2_Growth"]
 ax.plot(p_df.index, get_s('M2_Real_Growth'), color='purple')
-format_ax(ax, "7. Real M2 YoY Growth")
+format_ax(ax, "Real M2 YoY Growth")
 
 # HY Spread
 ax = ax_map["HY_Spread"]
@@ -497,54 +497,80 @@ ax.plot(p_df.index, get_s('HY_Spread'), color='orange', label='HY Spread')
 ax.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=0.5, label='50D SMA')
 ax.invert_yaxis()
 ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
-format_ax(ax, "8. HY Spread (Inverted) & Z-Score")
+format_ax(ax, "HY Spread (Inverted) & Z-Score")
 
 # 2Y and 10Y Rates
 ax = ax_map["Rates_2Y_10Y"]
 ax.plot(p_df.index, get_s('Fed_2Y'), color='royalblue', label='2Y Rate')
 ax.plot(p_df.index, get_s('Fed_10Y'), color='darkblue', label='10Y Rate')
-format_ax(ax, "9. 2Y and 10Y Rates")
+format_ax(ax, "2Y and 10Y Rates")
 
 # Yield Curves
 ax = ax_map["Yield_Curves"]
 ax.plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', label='10Y-2Y')
 ax.plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', label='2Y-3M')
 ax.axhline(0, color='black', lw=1, alpha=0.5)
-format_ax(ax, "10. Yield Curves (Recession Watch)")
+format_ax(ax, "Yield Curves (Recession Watch)")
 
 # USD/EUR
 ax = ax_map["USD_EUR"]
 ax.plot(p_df.index, get_s('USDEUR_FULL'), color='navy')
-format_ax(ax, "11. USD/EUR")
+format_ax(ax, "USD/EUR")
 
 # USD Index
 ax = ax_map["USD_Index"]
 ax.plot(p_df.index, get_s('USD_Index'), color='navy')
-format_ax(ax, "12. USD Index (DXY)")
+format_ax(ax, "USD Index (DXY)")
 
 # Breadth
+
 ax = ax_map["Breadth"]
-if 'RSP_SP500_Ratio' in p_df.columns:
-    ratio_start = p_df['RSP_SP500_Ratio'].iloc[0]
-    p_df['Breadth_Norm'] = (p_df['RSP_SP500_Ratio'] / ratio_start) * 100
-    p_df['Breadth_SMA_Norm'] = (p_df['Ratio_SMA20'] / ratio_start) * 100
-    ax.plot(p_df.index, p_df['Breadth_Norm'], color='teal', label='RSP/SP500')
-    ax.plot(p_df.index, p_df['Breadth_SMA_Norm'], color='darkslategray', ls='--')
+
+# Check if RSP exists and has at least some non-null values in the visible period
+if 'RSP_SP500_Ratio' in p_df.columns and not p_df['RSP_SP500_Ratio'].dropna().empty:
+    
+    # 1. Find the first date in the current view that HAS data
+    first_valid_date = p_df['RSP_SP500_Ratio'].first_valid_index()
+    ratio_start_val = p_df.loc[first_valid_date, 'RSP_SP500_Ratio']
+    
+    # 2. Re-base using that specific starting value
+    p_df['Breadth_Norm'] = (p_df['RSP_SP500_Ratio'] / ratio_start_val) * 100
+    p_df['Breadth_SMA_Norm'] = (p_df['Ratio_SMA20'] / ratio_start_val) * 100
+    
+    # 3. Plotting
+    ax.plot(p_df.index, p_df['Breadth_Norm'], color='teal', lw=1.5, label='RSP/SP500 Ratio')
+    ax.plot(p_df.index, p_df['Breadth_SMA_Norm'], color='darkslategray', ls='--', lw=1, label='20D SMA')
+
+    # Fill logic (Only active where data exists)
     ax.fill_between(p_df.index, p_df['Breadth_Norm'], p_df['Breadth_SMA_Norm'], 
-                    where=(p_df['Breadth_Norm'] >= p_df['Breadth_SMA_Norm']), color='green', alpha=0.15)
-format_ax(ax, "13. Market Breadth (Re-based to 100)")
+                      where=(p_df['Breadth_Norm'] >= p_df['Breadth_SMA_Norm']), 
+                      color='green', alpha=0.15)
+    ax.fill_between(p_df.index, p_df['Breadth_Norm'], p_df['Breadth_SMA_Norm'], 
+                      where=(p_df['Breadth_Norm'] < p_df['Breadth_SMA_Norm']), 
+                      color='red', alpha=0.1)
+    
+    # Add a vertical line to indicate where the data actually starts (optional)
+    ax.axvline(first_valid_date, color='gray', ls=':', alpha=0.5)
+
+else:
+    # If no data exists in the period, show a message
+    ax.text(0.5, 0.5, "RSP Data Not Available for this Period (Starts 2003)", 
+            transform=ax.transAxes, ha='center', alpha=0.5)
+
+format_ax(ax, "Market Breadth: Equal Weight vs. Market Cap (Re-based to 100)")
+ax.legend(loc='upper left', fontsize=9)
 
 # Funding Stress
 ax = ax_map["Funding_Stress"]
 ax.plot(p_df.index, get_s('Funding_Stress'), color='blue')
-format_ax(ax, "14. Funding Stress (SOFR-TGCR)")
+format_ax(ax, "Funding Stress (SOFR-TGCR)")
 
 # SMA Momentum
 ax = ax_map["SMA_Momentum"]
 ax.plot(p_df.index, get_s('SMA_Spread'), color='black')
 ax.fill_between(p_df.index, get_s('SMA_Spread'), 0, where=(get_s('SMA_Spread') >= 0), color='green', alpha=0.3)
 ax.fill_between(p_df.index, get_s('SMA_Spread'), 0, where=(get_s('SMA_Spread') < 0), color='red', alpha=0.3)
-format_ax(ax, "15. SMA Momentum (50D - 200D)")
+format_ax(ax, "SMA Momentum (50D - 200D)")
 
 #plt.tight_layout(pad=4.0)
 fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)
