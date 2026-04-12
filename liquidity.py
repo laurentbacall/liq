@@ -571,8 +571,8 @@ if "Leverage" in ax_map:
     handles = [ln1, ln2, red_patch]
     labels = [h.get_label() for h in handles]
 
-    # 6. Place legend in the middle right (outside the plot)
-    ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    # 6. Place legend in the middle right
+    ax.legend(handles, labels, loc='center left', fontsize=9, frameon=False)
 
     format_ax(ax, "Leverage Proxy (Margin Debt / Wilshire 5000)")
 
@@ -592,7 +592,7 @@ if "CPI_3M" in ax_map:
     
     # Simple legend call: Matplotlib automatically picks up 'CPI YoY' and '3M Rate'
     # bbox_to_anchor places it in the middle-right outside the plot
-    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    ax.legend(loc='center left', fontsize=9, frameon=False)
     
     format_ax(ax, "3M Rate vs. CPI YoY")
 
@@ -621,7 +621,7 @@ if "HY_Spread" in ax_map:
     hy_handles = [ln1, ln2]
     hy_labels = [l.get_label() for l in hy_handles]
     
-    ax.legend(hy_handles, hy_labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    ax.legend(hy_handles, hy_labels, loc='center left', fontsize=9, frameon=False)
     format_ax(ax, "HY Spread (Inverted) & Z-Score")
 
 # --- 2Y and 10Y Rates ---
@@ -631,7 +631,7 @@ if "Rates" in ax_map:
     ax.plot(p_df.index, get_s('Fed_10Y'), color='red', label='10Y Yield')
     
     # Matplotlib automatically finds labels for a single axis
-    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    ax.legend(loc='center left', fontsize=9, frameon=False)
     format_ax(ax, "Treasury Yields (2Y vs 10Y)")
 
 # --- Yield Curves ---
@@ -642,7 +642,7 @@ if "Yield_Curves" in ax_map:
     ax.axhline(0, color='black', lw=1, alpha=0.5)
     
     # Simple legend: automatically finds '2s10s' and '2Y-3M'
-    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    ax.legend(loc='center left', fontsize=9, frameon=False)
     format_ax(ax, "Yield Curves")
 
 # --- USD/EUR ---
@@ -651,7 +651,7 @@ if "USD" in ax_map:
     ax.plot(p_df.index, get_s('USD_EUR'), color='blue', label='USD/EUR')
     
     # Simple legend
-    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    ax.legend(loc='center left', fontsize=9, frameon=False)
     format_ax(ax, "USD / EUR Exchange Rate")
 
 # USD Index
