@@ -1,4 +1,3 @@
-# Todo: delay by one month (for the data to be available)
 # Todo: see to make it run locally 
 # Todo: See to include BRK-B
 # Todo: include valuation indicators
@@ -298,6 +297,9 @@ if not df.empty:
     else:
         df['Spread_2Y3M'] = 0.0
 
+    # Calculate the 50-day SMA for the High Yield Spread
+    df['HY_Spread_SMA50'] = df['HY_Spread'].rolling(window=50).mean()
+
     # --- SMA Spread (Golden/Death Cross Oscillator) ---
     if 'SP500_SMA50' in df.columns and 'SP500_SMA200' in df.columns:
         df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
@@ -484,6 +486,7 @@ ax7_twin = ax7.twinx()  # Create secondary axis
 
 # Plot HY Spread (Primary - Left Axis)
 ax7.plot(p_df.index, get_s('HY_Spread'), color='orange', lw=1.5, label='HY Spread')
+ax7.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=0.5, label='50D SMA')
 ax7.invert_yaxis() 
 
 # Plot HY Z-Score (Secondary - Right Axis)
