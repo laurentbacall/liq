@@ -10,12 +10,13 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 import yfinance as yf
 import os
-import mpld3
 import streamlit.components.v1 as components
 from fredapi import Fred
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.ticker import LogFormatterExponent
 from matplotlib.ticker import ScalarFormatter
+import plotly.tools as tls
+import plotly.graph_objects as go
 
 
 # --- 1. CONFIGURATION ---
@@ -616,5 +617,33 @@ for ax in axes:
 
 st.pyplot(fig)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
-fig_html = mpld3.fig_to_html(fig)
-components.html(fig_html, height=800, scrolling=True)
+# --- 6. DISPLAY WITH INTERACTIVE CROSSHAIR ---
+try:
+    # Convert Matplotlib figure to Plotly
+    plotly_fig = tls.mpl_to_plotly(fig)
+
+    # Enhance the interactive features
+    plotly_fig.update_layout(
+        hovermode="x unified",  # This creates the vertical "hair cross" across all plots
+        dragmode="pan",         # Enables panning
+        height=len(plot_order) * 400, # Matches your intended height
+        margin=dict(l=50, r=50, t=50, b=50),
+        showlegend=True
+    )
+    
+    # Configure the crosshair style
+    plotly_fig.update_xaxes(
+        showspikes=True, 
+        spikemode="across", 
+        spikesnap="cursor", 
+        spikethickness=1, 
+        spikedash="dash",
+        spikecolor="#999999"
+    )
+
+    st.plotly_chart(plotly_fig, use_container_width=True)
+
+except Exception as e:
+    # Fallback to static if Plotly conversion fails due to Matplotlib complexity
+    st.sidebar.warning(f"Interactive mode failed: {e}. Showing static version.")
+    st.pyplot(fig)
