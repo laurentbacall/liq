@@ -634,18 +634,25 @@ if "Rates" in ax_map:
     ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
     format_ax(ax, "Treasury Yields (2Y vs 10Y)")
 
-# Yield Curves
-ax = ax_map["Yield_Curves"]
-ax.plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', label='10Y-2Y')
-ax.plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', label='2Y-3M')
-ax.axhline(0, color='black', lw=1, alpha=0.5)
-ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
-format_ax(ax, "Yield Curves")
+# --- Yield Curves ---
+if "Yield_Curves" in ax_map:
+    ax = ax_map["Yield_Curves"]
+    ax.plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', label='2s10s')
+    ax.plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', label='2Y-3M')
+    ax.axhline(0, color='black', lw=1, alpha=0.5)
+    
+    # Simple legend: automatically finds '2s10s' and '2Y-3M'
+    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    format_ax(ax, "Yield Curves")
 
-# USD/EUR
-ax = ax_map["USD_EUR"]
-ax.plot(p_df.index, get_s('USDEUR_FULL'), color='navy')
-format_ax(ax, "USD/EUR")
+# --- USD/EUR ---
+if "USD" in ax_map:
+    ax = ax_map["USD"]
+    ax.plot(p_df.index, get_s('USD_EUR'), color='blue', label='USD/EUR')
+    
+    # Simple legend
+    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    format_ax(ax, "USD / EUR Exchange Rate"")
 
 # USD Index
 ax = ax_map["USD_Index"]
