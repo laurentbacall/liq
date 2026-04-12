@@ -144,39 +144,7 @@ def get_master_data():
             st.sidebar.warning("Could not find data rows in FINRA file.")
     except Exception as e:
         st.sidebar.error(f"FINRA Scraper Error: {e}")
-    # --- VALUATION DATA LOADING (Shiller CSV) ---
-    def load_shiller_data(file_path):
-        try:
-            # Skip top 7 lines of disclaimer/headers
-            df_sh = pd.read_csv(file_path, skiprows=7)
-        
-            # Parse Shiller's unique date format: 2003.01 (Jan) -> 2003.1 (Oct)
-            def parse_date(d):
-                try:
-                    s = f"{float(d):.2f}"
-                    year, month = s.split('.')
-                    return pd.Timestamp(year=int(year), month=int(month), day=1)
-                except: return pd.NaT
 
-            df_sh['Date'] = df_sh['Date'].apply(parse_date)
-            df_sh = df_sh.dropna(subset=['Date']).set_index('Date')
-        
-            # Convert columns to numeric (P is often object type in CSVs)
-            df_sh['P'] = pd.to_numeric(df_sh['P'], errors='coerce')
-            df_sh['E'] = pd.to_numeric(df_sh['E'], errors='coerce')
-        
-            # Calculate Earnings Yield
-            df_sh['EY'] = (df_sh['E'] / df_sh['P']) * 100
-            return df_sh[['CAPE', 'EY']]
-        except Exception as e:
-            st.error(f"Error loading Shiller CSV: {e}")
-            return pd.DataFrame()
-
-    # Load and merge Shiller data
-    shiller_df = load_shiller_data('ie_data (1).xls - Data.csv')
-    df = df.join(shiller_df, how='left')
-    # Forward fill monthly valuation data to match daily/weekly master data
-    df[['CAPE', 'EY']] = df[['CAPE', 'EY']].ffill()
     # --- 4. SYNTHETIC CURRENCY LOGIC ---
     # Convert DEM/USD to EUR/USD for pre-1999 data (Fixed rate: 1.95583)
     if 'USDDEM' in series_dict:
@@ -206,7 +174,45 @@ def get_master_data():
     # This removes weekends/holidays where FRED has data but markets are closed
     if 'SP500' in df.columns:
         df = df.dropna(subset=['SP500'])
-    
+    # --- VALUATION DATA LOADING (Shiller CSV) ---
+    # 5. Handle Valuation Data (Shiller Spreadsheet)
+    try:
+        # Fetching from the live URL provided
+        shiller_url = "https://img1.wsimg.com/blobby/go/e5e77e0b-59d1-44d9-ab25-4763ac982e53/downloads/1b9b0a8a-aa83-40bc-a151-c19ef387b564/ie_data.xls"
+        # We read the 'Data' sheet, skipping the top descriptive header rows
+        shiller_raw = pd.read_excel(shiller_url, sheet_name='Data', skiprows=7)
+        
+        # Clean Date: Shiller uses YYYY.1 for Oct, YYYY.01 for Jan
+        def parse_shiller_date(d):
+            try:
+                s = str(d)
+                if '.' not in s: return pd.NaT
+                year, month_dec = s.split('.')
+                # .1 -> 10, .01 -> 1
+                month_str = month_dec.ljust(2, '0') if len(month_dec) == 1 else month_dec
+                return pd.Timestamp(year=int(year), month=int(month_str), day=1)
+            except: return pd.NaT
+
+        shiller_raw['Date_dt'] = shiller_raw['Date'].apply(parse_shiller_date)
+        shiller_raw = shiller_raw.dropna(subset=['Date_dt']).set_index('Date_dt')
+        
+        # Convert columns to numeric (avoiding string errors)
+        shiller_raw['P'] = pd.to_numeric(shiller_raw['P'], errors='coerce')
+        shiller_raw['E'] = pd.to_numeric(shiller_raw['E'], errors='coerce')
+        shiller_raw['CAPE'] = pd.to_numeric(shiller_raw['CAPE'], errors='coerce')
+        
+        # Calculate Earnings Yield
+        shiller_raw['EY'] = (shiller_raw['E'] / shiller_raw['P']) * 100
+        
+        # Join to master df (df is now defined, so no UnboundLocalError)
+        df = df.join(shiller_raw[['CAPE', 'EY']], how='left')
+        
+        # Forward fill monthly data to daily bars
+        df[['CAPE', 'EY']] = df[['CAPE', 'EY']].ffill()
+        
+    except Exception as e:
+        st.warning(f"Note: Could not fetch live Shiller data. Check URL or firewall. Error: {e}")
+
     return df
 
 def calculate_bear_markets(series):
