@@ -4,4 +4,4 @@ fredapi
 matplotlib
 yfinance
 openpyxl
-mpld3
+plotly
