@@ -10,6 +10,8 @@ import matplotlib.dates as mdates
 from matplotlib.ticker import FuncFormatter, MultipleLocator
 import yfinance as yf
 import os
+import mpld3
+import streamlit.components.v1 as components
 from fredapi import Fred
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.ticker import LogFormatterExponent
@@ -614,3 +616,5 @@ for ax in axes:
 
 st.pyplot(fig)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
+fig_html = mpld3.fig_to_html(fig)
+components.html(fig_html, height=800, scrolling=True)
