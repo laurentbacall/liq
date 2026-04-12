@@ -652,7 +652,7 @@ if "USD" in ax_map:
     
     # Simple legend
     ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
-    format_ax(ax, "USD / EUR Exchange Rate"")
+    format_ax(ax, "USD / EUR Exchange Rate")
 
 # USD Index
 ax = ax_map["USD_Index"]
