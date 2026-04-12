@@ -406,31 +406,19 @@ start_s, end_s = st.select_slider(
 p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
-# 1. Define the EXACT order of your graphs here. 
-# To re-order, just move the strings in this list.
 plot_order = [
-    "SP500",             # 1
-    "Allocation",        # 2
-    "Leverage",          # 3
-    "VIX",               # 4
-    "CPI_3M",            # 5
-    "Net_Liq",           # 6
-    "M2_Growth",         # 7
-    "HY_Spread",         # 8
-    "Rates_2Y_10Y",      # 9
-    "Yield_Curves",      # 10
-    "USD_EUR",           # 11
-    "USD_Index",         # 12
-    "Breadth",           # 13
-    "Funding_Stress",    # 14
-    "SMA_Momentum"       # 15
+    "SP500", "Allocation", "Leverage", "VIX", "CPI_3M", 
+    "Net_Liq", "M2_Growth", "HY_Spread", "Rates_2Y_10Y", 
+    "Yield_Curves", "USD_EUR", "USD_Index", "Breadth", 
+    "Funding_Stress", "SMA_Momentum"
 ]
 
 fig, axes = plt.subplots(nrows=len(plot_order), ncols=1, figsize=(12, 4 * len(plot_order)), sharex=True)
 plt.subplots_adjust(hspace=0.6, top=0.95, bottom=0.05)
 
-# 2. Create a lookup map so we don't have to use hardcoded indices like axes[12]
-ax_map = {name: axes[i] for i, name in enumerate(plot_order)}
+# 1. DEFINE HELPER FUNCTIONS FIRST
+def get_s(col): 
+    return p_df[col] if col in p_df.columns else pd.Series(np.zeros(len(p_df)), index=p_df.index)
 
 def format_ax(ax, title, use_log=False):
     ax.set_title(title, loc='left', fontweight='bold', fontsize=14)
@@ -441,9 +429,11 @@ def format_ax(ax, title, use_log=False):
     ax.tick_params(labelbottom=True)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:,.2f}' if x < 10 else f'{x:,.0f}'))
 
-# --- PLOTTING LOGIC USING THE MAP ---
+# 2. CREATE THE MAP
+ax_map = {name: axes[i] for i, name in enumerate(plot_order)}
 
-# 1. SP500
+# 3. PLOTTING LOGIC
+# S&P 500
 ax = ax_map["SP500"]
 ax.plot(p_df.index, p_df['SP500'], color='black', lw=0.5)
 if 'SP500_SMA200' in p_df.columns:
@@ -453,7 +443,7 @@ if 'SP500_SMA50' in p_df.columns:
 ax.legend(loc='upper left')
 format_ax(ax, "1. S&P 500, 50-d & 200-d SMA", use_log=True)
 
-# 2. Allocation & Performance
+# Allocation & Performance
 ax = ax_map["Allocation"]
 ax_twin = ax.twinx()
 strat_series, spy_series = get_s('Strategy_Cum'), get_s('SPY_Cum')
@@ -469,7 +459,7 @@ ax_twin.yaxis.set_major_formatter(ScalarFormatter())
 format_ax(ax, "2. Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
-# 3. Leverage Proxy
+# Leverage Proxy
 ax = ax_map["Leverage"]
 ax_twin = ax.twinx()
 ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
@@ -477,30 +467,30 @@ ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha
 ax_twin.axhline(2, color='red', ls='--', alpha=0.5)
 format_ax(ax, "3. Leverage Proxy (Margin Debt / Wilshire 5000)")
 
-# 4. VIX
+# VIX
 ax = ax_map["VIX"]
 ax.plot(p_df.index, get_s('VIX'), color='red', alpha=0.3, label='VIX')
 ax.plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA')
 ax.axhline(40, color='black', ls=':', label='Panic Line (40)')
 format_ax(ax, "4. VIX & Re-entry Signal")
 
-# 5. CPI vs 3M
+# CPI vs 3M
 ax = ax_map["CPI_3M"]
 ax.plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %')
 ax.plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate')
 format_ax(ax, "5. 3M Rate vs. CPI YoY")
 
-# 6. Net Liquidity
+# Net Liquidity
 ax = ax_map["Net_Liq"]
 ax.plot(p_df.index, get_s('Net_Liq'), color='darkgreen')
 format_ax(ax, "6. FED Net Liquidity")
 
-# 7. Real M2
+# Real M2
 ax = ax_map["M2_Growth"]
 ax.plot(p_df.index, get_s('M2_Real_Growth'), color='purple')
 format_ax(ax, "7. Real M2 YoY Growth")
 
-# 8. HY Spread
+# HY Spread
 ax = ax_map["HY_Spread"]
 ax_twin = ax.twinx()
 ax.plot(p_df.index, get_s('HY_Spread'), color='orange', label='HY Spread')
@@ -509,30 +499,30 @@ ax.invert_yaxis()
 ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
 format_ax(ax, "8. HY Spread (Inverted) & Z-Score")
 
-# 9. 2Y and 10Y Rates
+# 2Y and 10Y Rates
 ax = ax_map["Rates_2Y_10Y"]
 ax.plot(p_df.index, get_s('Fed_2Y'), color='royalblue', label='2Y Rate')
 ax.plot(p_df.index, get_s('Fed_10Y'), color='darkblue', label='10Y Rate')
 format_ax(ax, "9. 2Y and 10Y Rates")
 
-# 10. Yield Curves
+# Yield Curves
 ax = ax_map["Yield_Curves"]
 ax.plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', label='10Y-2Y')
 ax.plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', label='2Y-3M')
 ax.axhline(0, color='black', lw=1, alpha=0.5)
 format_ax(ax, "10. Yield Curves (Recession Watch)")
 
-# 11. USD/EUR
+# USD/EUR
 ax = ax_map["USD_EUR"]
 ax.plot(p_df.index, get_s('USDEUR_FULL'), color='navy')
 format_ax(ax, "11. USD/EUR")
 
-# 12. USD Index
+# USD Index
 ax = ax_map["USD_Index"]
 ax.plot(p_df.index, get_s('USD_Index'), color='navy')
 format_ax(ax, "12. USD Index (DXY)")
 
-# 13. Breadth
+# Breadth
 ax = ax_map["Breadth"]
 if 'RSP_SP500_Ratio' in p_df.columns:
     ratio_start = p_df['RSP_SP500_Ratio'].iloc[0]
@@ -544,12 +534,12 @@ if 'RSP_SP500_Ratio' in p_df.columns:
                     where=(p_df['Breadth_Norm'] >= p_df['Breadth_SMA_Norm']), color='green', alpha=0.15)
 format_ax(ax, "13. Market Breadth (Re-based to 100)")
 
-# 14. Funding Stress
+# Funding Stress
 ax = ax_map["Funding_Stress"]
 ax.plot(p_df.index, get_s('Funding_Stress'), color='blue')
 format_ax(ax, "14. Funding Stress (SOFR-TGCR)")
 
-# 15. SMA Momentum
+# SMA Momentum
 ax = ax_map["SMA_Momentum"]
 ax.plot(p_df.index, get_s('SMA_Spread'), color='black')
 ax.fill_between(p_df.index, get_s('SMA_Spread'), 0, where=(get_s('SMA_Spread') >= 0), color='green', alpha=0.3)
