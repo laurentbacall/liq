@@ -41,8 +41,8 @@ def get_master_data():
     start_date = "1995-01-01"
     series_dict = {}
     csv_file = "historical_data.csv" 
-    tickers = ["^GSPC", "^VIX", "^W5000"]
-    mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000"}
+    tickers = ["^GSPC", "^VIX", "^W5000", "RSP"]
+    mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000", "RSP": "RSP"}
 
     # Initialize df_combined as empty so we have a fallback
     df_combined = pd.DataFrame()
@@ -228,7 +228,7 @@ df = get_master_data()
 # --- 3. CALCULATIONS ---
 if not df.empty:
     # SAFETY: Ensure all required columns exist as Series (prevents AttributeError)
-    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM', 'VIX']
+    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM', 'VIX', 'RSP']
     for col in required_cols:
         if col not in df.columns:
             df[col] = 0.0  # Create as float series of zeros
@@ -319,8 +319,10 @@ if not df.empty:
     # 2. Check if VIX is currently closing below its 14-day SMA
     vix_below_sma = df['VIX'] < df['VIX_SMA14']
     
-
-    
+    # MARKET BREADTH
+    df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
+    df['Ratio_SMA20'] = df['RSP_SP500_Ratio'].rolling(window=20).mean()
+    breadth_confirmed = df['RSP_SP500_Ratio'] > df['Ratio_SMA20']
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
     three_months_above_2 = (monthly_z > 2) & (monthly_z.shift(1) > 2) & (monthly_z.shift(2) > 2)
@@ -577,6 +579,34 @@ axes[3].axhline(40, color='black', ls=':', alpha=0.5, label='Panic Line (40)')
 
 format_ax(axes[3], "4. VIX & Re-entry Signal (VIX < 14D SMA after 40 Peak)")
 axes[3].legend(loc='upper left', fontsize=8)
+
+# --- 13. Market Breadth Indicator (RSP / SP500) ---
+ax12 = axes[12]
+
+# Re-base the ratio to 100 at the start of the visible slider period
+if 'RSP_SP500_Ratio' in p_df.columns:
+    ratio_start_val = p_df['RSP_SP500_Ratio'].iloc[0]
+    p_df['Breadth_Norm'] = (p_df['RSP_SP500_Ratio'] / ratio_start_val) * 100
+    p_df['Breadth_SMA_Norm'] = (p_df['Ratio_SMA20'] / ratio_start_val) * 100
+
+    # Plot the normalized ratio and its SMA
+    ax12.plot(p_df.index, p_df['Breadth_Norm'], color='teal', lw=1.5, label='Breadth Ratio (RSP/SP500)')
+    ax12.plot(p_df.index, p_df['Breadth_SMA_Norm'], color='darkslategray', ls='--', lw=1, label='20D SMA')
+
+    # Fill green when breadth is expanding (Ratio > SMA)
+    ax12.fill_between(p_df.index, p_df['Breadth_Norm'], p_df['Breadth_SMA_Norm'], 
+                      where=(p_df['Breadth_Norm'] >= p_df['Breadth_SMA_Norm']), 
+                      color='green', alpha=0.15)
+    
+    # Fill red when breadth is contracting (Ratio < SMA)
+    ax12.fill_between(p_df.index, p_df['Breadth_Norm'], p_df['Breadth_SMA_Norm'], 
+                      where=(p_df['Breadth_Norm'] < p_df['Breadth_SMA_Norm']), 
+                      color='red', alpha=0.1)
+
+# Formatting
+format_ax(ax12, "13. Market Breadth: Equal Weight vs. Market Cap (Re-based to 100)")
+ax12.legend(loc='upper left', fontsize=9)
+
 axes[13].plot(p_df.index, get_s('Funding_Stress'), color='blue'); format_ax(axes[13], "11. Funding Stress")
 # 15. SMA Spread (50D - 200D)
 axes[14].plot(p_df.index, get_s('SMA_Spread'), color='black', lw=1, label='50D - 200D')
