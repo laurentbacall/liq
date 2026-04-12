@@ -611,17 +611,28 @@ if "HY_Spread" in ax_map:
     ax = ax_map["HY_Spread"]
     ax_twin = ax.twinx()
     
-    # Use commas to unpack the line objects
-    ln1, = ax.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=1.5, label='HY Spread SMA50')
+    # 1. Plot Daily Spread (Raw) - Captured as ln1
+    # Assuming 'HY_Spread' is the column name in your dataframe
+    ln1, = ax.plot(p_df.index, get_s('HY_Spread'), color='blue', lw=0.5, alpha=0.4, label='HY Spread Daily')
+    
+    # 2. Plot SMA 50 - Captured as ln2
+    ln2, = ax.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=1.5, label='HY Spread SMA50')
+    
+    # Invert the primary axis
     ax.invert_yaxis()
     
-    ln2, = ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
+    # 3. Plot Z-Score on the twin axis - Captured as ln3
+    ln3, = ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
     
-    # Consolidate handles and labels locally
-    hy_handles = [ln1, ln2]
+    # 4. Consolidate handles and labels for the legend
+    # This ensures all three lines appear in the same legend box
+    hy_handles = [ln1, ln2, ln3]
     hy_labels = [l.get_label() for l in hy_handles]
     
-    ax.legend(hy_handles, hy_labels, loc='center left', fontsize=9, frameon=False)
+    # 5. Place legend inside or outside based on preference
+    # Here it is placed inside the graph (upper left)
+    ax.legend(hy_handles, hy_labels, loc='upper left', fontsize=8, frameon=True)
+    
     format_ax(ax, "HY Spread (Inverted) & Z-Score")
 
 # --- 2Y and 10Y Rates ---
