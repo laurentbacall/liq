@@ -583,12 +583,18 @@ ax.plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA'
 ax.axhline(40, color='black', ls='dotted', label='Panic Line (40)')
 format_ax(ax, "VIX & Re-entry Signal")
 
-# CPI vs 3M
-ax = ax_map["CPI_3M"]
-ax.plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %')
-ax.plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate')
-ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
-format_ax(ax, "3M Rate vs. CPI YoY")
+# --- 3M Rate vs. CPI YoY ---
+if "CPI_3M" in ax_map:
+    ax = ax_map["CPI_3M"]
+    # Plot the lines and provide labels directly in the plot call
+    ax.plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY')
+    ax.plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate')
+    
+    # Simple legend call: Matplotlib automatically picks up 'CPI YoY' and '3M Rate'
+    # bbox_to_anchor places it in the middle-right outside the plot
+    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    
+    format_ax(ax, "3M Rate vs. CPI YoY")
 
 # Net Liquidity
 ax = ax_map["Net_Liq"]
