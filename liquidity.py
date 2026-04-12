@@ -617,41 +617,6 @@ for ax in axes:
     for start, end in bear_episodes:
         ax.axvspan(start, end, color='gray', alpha=0.15)
 
-st.pyplot(fig)
+st.pyplot(fig, clear_figure=True)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
 
-# --- 6. DISPLAY WITH INTERACTIVE CROSSHAIR ---
-try:
-    # Convert Matplotlib figure to Plotly
-    plotly_fig = tls.mpl_to_plotly(fig)
-
-    # Enhance the interactive features
-    plotly_fig.update_layout(
-        hovermode="x unified",
-        dragmode="pan",
-        height=len(plot_order) * 400,
-        margin=dict(l=50, r=50, t=50, b=50),
-        showlegend=True,
-        template="plotly_white"
-    )
-    
-    # FIX: Ensure spikedash uses an allowed string ('dot' or 'dash')
-    # and remove any ambiguous marker-style references
-    plotly_fig.update_xaxes(
-        showspikes=True, 
-        spikemode="across", 
-        spikesnap="cursor", 
-        spikethickness=1, 
-        spikedash="dot",      # Changed from anything else to 'dot'
-        spikecolor="#999999"
-    )
-
-    plotly_fig.update_yaxes(
-        showspikes=False  # Keep it clean by only having the vertical hair cross
-    )
-
-    st.plotly_chart(plotly_fig, use_container_width=True)
-
-except Exception as e:
-    st.sidebar.warning(f"Interactive mode failed: {e}. Showing static version.")
-    st.pyplot(fig)
