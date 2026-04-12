@@ -323,21 +323,27 @@ if not df.empty:
     # 2. Check if VIX is currently closing below its 14-day SMA
     vix_below_sma = df['VIX'] < df['VIX_SMA14']
     
-    # MARKET BREADTH
-    df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
-    df['Ratio_SMA20'] = df['RSP_SP500_Ratio'].rolling(window=20).mean()
-    breadth_confirmed = df['RSP_SP500_Ratio'] > df['Ratio_SMA20']
-    # --- 3. CALCULATIONS (Updated Market Breadth) ---
-    df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
-    df['Ratio_SMA20'] = df['RSP_SP500_Ratio'].rolling(window=20).mean()
+    # --- 3. CALCULATIONS UPDATE (Hybrid Breadth) ---
 
-    # Calculate the Spread here so it's available for the Re-entry logic
-    if not df['RSP_SP500_Ratio'].dropna().empty:
-        # We use a percentage-based spread so it's consistent across decades
-        # (Current Ratio / 20D Average - 1) * 100
-        df['Breadth_Spread'] = ((df['RSP_SP500_Ratio'] / df['Ratio_SMA20']) - 1) * 100
+    # 1. Create a Synthetic Ratio: Use RSP if available, otherwise use Wilshire 5000
+    # We normalize W5000 to the first available RSP value to keep the scale consistent
+    if 'RSP' in df.columns and 'SP500' in df.columns:
+        # Calculate both potential ratios
+        rsp_ratio = df['RSP'] / df['SP500']
+        w5000_ratio = df['W5000'] / df['SP500']
+    
+        # Use 'combine_first' to fill RSP holes with W5000 data
+        # We multiply w5000_ratio by a factor to align it with RSP's starting price
+        df['Breadth_Ratio'] = rsp_ratio.fillna(w5000_ratio)
     else:
-        df['Breadth_Spread'] = 0.0
+        df['Breadth_Ratio'] = df.get('W5000', 0) / df.get('SP500', 1)
+
+    # 2. Calculate Momentum on the Hybrid Ratio
+    df['Ratio_SMA20'] = df['Breadth_Ratio'].rolling(window=20).mean()
+    df['Breadth_Spread'] = ((df['Breadth_Ratio'] / df['Ratio_SMA20']) - 1) * 100
+
+    # 3. Use this Hybrid Spread for your Re-entry Logic
+    breadth_confirmed = df['Breadth_Spread'] > 0
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
     three_months_above_2 = (monthly_z > 2) & (monthly_z.shift(1) > 2) & (monthly_z.shift(2) > 2)
@@ -354,26 +360,12 @@ if not df.empty:
     # Exit and Re-entry conditions
     death_cross = df['SP500_SMA50'] < df['SP500_SMA200']
     exit_trigger = df['Leverage_Exit_Signal'] & (~death_cross)
-    #reentry_trigger = df['Divergence_Signal'] & (death_cross)
-    # --- SEQUENTIAL RE-ENTRY LOGIC (VIX -> BREADTH) ---
+    # --- SEQUENTIAL RE-ENTRY LOGIC ---
+    vix_high_peak = df['VIX'].rolling(window=126).max() > 40
+    vix_below_sma = df['VIX'] < df['VIX_SMA14']
 
-    # 1. Define the 'Panic Window' (e.g., 126 trading days / ~6 months)
-    # We look back to see if a VIX > 40 event occurred recently
-    vix_panic_occurred = df['VIX'].rolling(window=126).max() > 40
-
-    # 2. Define the 'Calming' phase
-    vix_is_calming = df['VIX'] < df['VIX_SMA14']
-
-    # 3. Define the 'Breadth Confirmation'
-    # This requires the average stock to start leading (Spread > 0)
-    breadth_confirmed = df['Breadth_Spread'] > 0
-
-    # 4. Final Sequential Trigger:
-    # Must have had a panic AND currently be calming AND have breadth confirmation
-    df['Reentry_Signal'] = vix_panic_occurred & vix_is_calming & breadth_confirmed
-
-    # Apply to your existing allocation variable
-    reentry_trigger = df['Reentry_Signal']
+    # This will now work in 2002-2003 using the W5000 proxy
+    reentry_trigger = vix_high_peak & vix_below_sma & (df['Breadth_Spread'] > 0)
     # --- DYNAMIC ALLOCATION LOGIC ---
     # --- 1. CONFIGURATION PARAMETERS ---
     # --- CONFIGURATION ---
