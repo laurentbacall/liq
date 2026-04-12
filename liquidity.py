@@ -620,26 +620,38 @@ for ax in axes:
 st.pyplot(fig)
 st.download_button("📥 DOWNLOAD CSV", p_df.to_csv().encode('utf-8'), "macro_monitor.csv", "text/csv")
 
-# --- 6. DISPLAY LOGIC ---
+# --- 6. DISPLAY WITH INTERACTIVE CROSSHAIR ---
 try:
-    # Attempt conversion
+    # Convert Matplotlib figure to Plotly
     plotly_fig = tls.mpl_to_plotly(fig)
-    
-    # Configure the "Unified" crosshair
+
+    # Enhance the interactive features
     plotly_fig.update_layout(
-        hovermode="x unified", 
-        height=len(plot_order) * 350,
+        hovermode="x unified",
+        dragmode="pan",
+        height=len(plot_order) * 400,
+        margin=dict(l=50, r=50, t=50, b=50),
         showlegend=True,
         template="plotly_white"
     )
     
-    # Clean up axes spikes (the "hair cross")
-    plotly_fig.update_xaxes(showspikes=True, spikemode="across", spikesnap="cursor", spikedash="dot")
-    plotly_fig.update_yaxes(showspikes=True, spikemode="across", spikesnap="cursor", spikedash="dot")
+    # FIX: Ensure spikedash uses an allowed string ('dot' or 'dash')
+    # and remove any ambiguous marker-style references
+    plotly_fig.update_xaxes(
+        showspikes=True, 
+        spikemode="across", 
+        spikesnap="cursor", 
+        spikethickness=1, 
+        spikedash="dot",      # Changed from anything else to 'dot'
+        spikecolor="#999999"
+    )
+
+    plotly_fig.update_yaxes(
+        showspikes=False  # Keep it clean by only having the vertical hair cross
+    )
 
     st.plotly_chart(plotly_fig, use_container_width=True)
 
 except Exception as e:
-    # If conversion fails, show the clean static version
-    st.error(f"Interactivity disabled due to: {e}")
+    st.sidebar.warning(f"Interactive mode failed: {e}. Showing static version.")
     st.pyplot(fig)
