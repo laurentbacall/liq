@@ -1,7 +1,5 @@
 # Todo: see to make it run locally 
 # Todo: See to include BRK-B
-# Todo: include valuation indicators
-# Todo: solve memory leak issue
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -348,7 +346,7 @@ if not df.empty:
     # Since GDP is quarterly, ffill() spreads the value across the quarter
     df['GDP_Filled'] = df['GDP'].ffill()
     df['Buffett_v1'] = (df['W5000'] / df['GDP_Filled']) 
-    df['Buffett_v2'] = (df['W5000'] / (df['GDP_Filled'] + df['Net_Liq']))
+    df['Buffett_v2'] = (df['W5000'] / (df['GDP_Filled'] + df['Net_Liq'] / 1000))
 
     # 2. Earnings Yield vs 10Y
     df['EY_10Y_Spread'] = df['EY'] - df['Fed_10Y']
