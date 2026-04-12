@@ -442,9 +442,9 @@ ax_map = {name: axes[i] for i, name in enumerate(plot_order)}
 ax = ax_map["SP500"]
 ax.plot(p_df.index, p_df['SP500'], color='black', lw=0.5)
 if 'SP500_SMA200' in p_df.columns:
-    ax.plot(p_df.index, p_df['SP500_SMA200'], color='red', ls='--', lw=1.5, label='200D SMA')
+    ax.plot(p_df.index, p_df['SP500_SMA200'], color='red', ls='dashed', lw=1.5, label='200D SMA')
 if 'SP500_SMA50' in p_df.columns:
-    ax.plot(p_df.index, p_df['SP500_SMA50'], color='blue', ls=':', lw=1.2, label='50D SMA')
+    ax.plot(p_df.index, p_df['SP500_SMA50'], color='blue', ls='dotted', lw=1.2, label='50D SMA')
 ax.legend(loc='upper left')
 format_ax(ax, "S&P 500, 50-d & 200-d SMA", use_log=True)
 
@@ -469,14 +469,14 @@ ax = ax_map["Leverage"]
 ax_twin = ax.twinx()
 ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
 ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Z-Score')
-ax_twin.axhline(2, color='red', ls='--', alpha=0.5)
+ax_twin.axhline(2, color='red', ls='dashed', alpha=0.5)
 format_ax(ax, "Leverage Proxy (Margin Debt / Wilshire 5000)")
 
 # VIX
 ax = ax_map["VIX"]
 ax.plot(p_df.index, get_s('VIX'), color='red', alpha=0.3, label='VIX')
 ax.plot(p_df.index, get_s('VIX_SMA14'), color='darkred', lw=1.5, label='14D SMA')
-ax.axhline(40, color='black', ls=':', label='Panic Line (40)')
+ax.axhline(40, color='black', ls='dotted', label='Panic Line (40)')
 format_ax(ax, "VIX & Re-entry Signal")
 
 # CPI vs 3M
