@@ -659,7 +659,7 @@ if "Yield_Curves" in ax_map:
 # --- USD/EUR ---
 if "USD_EUR" in ax_map:
     ax = ax_map["USD"]
-    ax.plot(p_df.index, get_s('USD_EUR'), color='blue', label='USD/EUR')
+    ax.plot(p_df.index, get_s('USDEUR_FULL'), color='blue', label='USD/EUR')
     
     # Simple legend
     ax.legend(loc='center left', fontsize=9, frameon=False)
