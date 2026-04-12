@@ -1,5 +1,6 @@
-# Todo: see to make it run locally 
+# Todo: see to make it run locally (avec crosshair)
 # Todo: See to include BRK-B
+# Todo: regarder pour une version moins noisy du market breadth
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -538,12 +539,28 @@ ax_twin.yaxis.set_major_formatter(ScalarFormatter())
 format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
-# Leverage Proxy
-ax = ax_map["Leverage"]
-ax_twin = ax.twinx()
-ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
-ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Z-Score')
-ax_twin.axhline(2, color='red', ls='dashed', alpha=0.5)
+# 3. Shade the excess (where Z-Score > 2)
+# We use ax_twin because the Z-Score data is on that scale
+ax_twin.fill_between(
+    p_df.index, 
+    get_s('Margin_Ratio_Z'), 
+    2, 
+    where=(get_s('Margin_Ratio_Z') > 2),
+    color='red', 
+    alpha=0.3, 
+    label='Excess Leverage'
+)
+
+# 4. Consolidate legends from both axes and place in the middle-right
+lines = ln1 + ln2
+labels = [l.get_label() for l in lines]
+# Adding 'Excess Leverage' to the legend manually since fill_between needs it
+labels.append('Excess Leverage') 
+# Note: Matplotlib handles the fill_between label better if you pass it as a proxy, 
+# but for simplicity, we can just use ax.legend or ax_twin.legend with all handles.
+
+ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+
 format_ax(ax, "Leverage Proxy (Margin Debt / Wilshire 5000)")
 
 # VIX
@@ -557,6 +574,7 @@ format_ax(ax, "VIX & Re-entry Signal")
 ax = ax_map["CPI_3M"]
 ax.plot(p_df.index, get_s('CPI_YoY'), color='black', lw=2, label='CPI YoY %')
 ax.plot(p_df.index, get_s('Fed_3M'), color='teal', lw=1, label='3M Rate')
+ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
 format_ax(ax, "3M Rate vs. CPI YoY")
 
 # Net Liquidity
@@ -576,12 +594,14 @@ ax.plot(p_df.index, get_s('HY_Spread'), color='orange', label='HY Spread')
 ax.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=0.5, label='50D SMA')
 ax.invert_yaxis()
 ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
+ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
 format_ax(ax, "HY Spread (Inverted) & Z-Score")
 
 # 2Y and 10Y Rates
 ax = ax_map["Rates_2Y_10Y"]
 ax.plot(p_df.index, get_s('Fed_2Y'), color='royalblue', label='2Y Rate')
 ax.plot(p_df.index, get_s('Fed_10Y'), color='darkblue', label='10Y Rate')
+ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
 format_ax(ax, "2Y and 10Y Rates")
 
 # Yield Curves
@@ -589,7 +609,8 @@ ax = ax_map["Yield_Curves"]
 ax.plot(p_df.index, get_s('Yield_Curve_2s10s'), color='darkgreen', label='10Y-2Y')
 ax.plot(p_df.index, get_s('Spread_2Y3M'), color='limegreen', label='2Y-3M')
 ax.axhline(0, color='black', lw=1, alpha=0.5)
-format_ax(ax, "Yield Curves (Recession Watch)")
+ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+format_ax(ax, "Yield Curves")
 
 # USD/EUR
 ax = ax_map["USD_EUR"]
