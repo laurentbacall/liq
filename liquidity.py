@@ -232,10 +232,11 @@ df = get_master_data()
 # --- 3. CALCULATIONS ---
 if not df.empty:
     # SAFETY: Ensure all required columns exist as Series (prevents AttributeError)
-    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM', 'VIX', 'RSP']
+    required_cols = ['Fed_Assets', 'TGA', 'RRP', 'CPI', 'Margin_Debt', 'SP500', 'VIX', 'HY_Spread', 'EURUSD', 'USDDEM', 'VIX', 'RSP', 'W5000']
     for col in required_cols:
         if col not in df.columns:
-            df[col] = 0.0  # Create as float series of zeros
+            #df[col] = 0.0  # Create as float series of zeros
+            df[col] = np.nan
 
     # Now the math is safe
     df['VIX_SMA14'] = df['VIX'].rolling(window=14).mean()
@@ -327,22 +328,28 @@ if not df.empty:
 
     # 1. Create a Synthetic Ratio: Use RSP if available, otherwise use Wilshire 5000
     # We normalize W5000 to the first available RSP value to keep the scale consistent
-    if 'RSP' in df.columns and 'SP500' in df.columns:
-        # Calculate both potential ratios
-        rsp_ratio = df['RSP'] / df['SP500']
-        w5000_ratio = df['W5000'] / df['SP500']
-    
-        # Use 'combine_first' to fill RSP holes with W5000 data
-        # We multiply w5000_ratio by a factor to align it with RSP's starting price
-        df['Breadth_Ratio'] = rsp_ratio.fillna(w5000_ratio)
-    else:
-        df['Breadth_Ratio'] = df.get('W5000', 0) / df.get('SP500', 1)
+    # --- HYBRID MARKET BREADTH (W5000 -> RSP) ---
+    # 1. Calculate the raw ratios
+    df['RSP_Ratio'] = df['RSP'] / df['SP500']
+    df['W5000_Ratio'] = df['W5000'] / df['SP500']
 
-    # 2. Calculate Momentum on the Hybrid Ratio
+    # 2. Find the transition point (first day RSP has data)
+    first_rsp_date = df['RSP_Ratio'].first_valid_index()
+
+    if first_rsp_date is not None:
+        # 3. Calculate adjustment factor to make W5000 match RSP at launch
+        adj_factor = df.loc[first_rsp_date, 'RSP_Ratio'] / df.loc[first_rsp_date, 'W5000_Ratio']
+        # 4. Create the Hybrid Ratio: RSP where available, otherwise rebased W5000
+        df['Breadth_Ratio'] = df['RSP_Ratio'].fillna(df['W5000_Ratio'] * adj_factor)
+    else:
+        # Fallback if RSP is totally missing
+        df['Breadth_Ratio'] = df['W5000_Ratio']
+
+    # 5. Calculate Momentum on the Hybrid Ratio
+    # This calculation is now stable through 2002 and 2003
     df['Ratio_SMA20'] = df['Breadth_Ratio'].rolling(window=20).mean()
     df['Breadth_Spread'] = ((df['Breadth_Ratio'] / df['Ratio_SMA20']) - 1) * 100
-
-    # 3. Use this Hybrid Spread for your Re-entry Logic
+    
     breadth_confirmed = df['Breadth_Spread'] > 0
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
