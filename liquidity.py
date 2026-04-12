@@ -631,13 +631,13 @@ if "HY_Spread" in ax_map:
     
     # 5. Place legend inside or outside based on preference
     # Here it is placed inside the graph (upper left)
-    ax.legend(hy_handles, hy_labels, loc='upper left', fontsize=8, frameon=True)
+    ax.legend(hy_handles, hy_labels, loc='center left', fontsize=8, frameon=True)
     
     format_ax(ax, "HY Spread (Inverted) & Z-Score")
 
 # --- 2Y and 10Y Rates ---
-if "Rates" in ax_map:
-    ax = ax_map["Rates"]
+if "Rates_2Y_10Y" in ax_map:
+    ax = ax_map["Rates_2Y_10Y"]
     ax.plot(p_df.index, get_s('Fed_2Y'), color='blue', label='2Y Yield')
     ax.plot(p_df.index, get_s('Fed_10Y'), color='red', label='10Y Yield')
     
@@ -653,11 +653,11 @@ if "Yield_Curves" in ax_map:
     ax.axhline(0, color='black', lw=1, alpha=0.5)
     
     # Simple legend: automatically finds '2s10s' and '2Y-3M'
-    ax.legend(loc='center left', fontsize=9, frameon=False)
-    format_ax(ax, "Yield Curves")
+    ax.legend(loc='lower left', fontsize=9, frameon=False)
+    format_ax(ax, "Yield Curves 10Y-2Y and 2Y-3M")
 
 # --- USD/EUR ---
-if "USD" in ax_map:
+if "USD_EUR" in ax_map:
     ax = ax_map["USD"]
     ax.plot(p_df.index, get_s('USD_EUR'), color='blue', label='USD/EUR')
     
