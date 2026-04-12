@@ -103,7 +103,7 @@ def get_master_data():
         'WALCL': 'Fed_Assets', 'M2SL': 'M2', 'WTREGEN': 'TGA', 
         'RRPONTSYD': 'RRP', 'DTWEXBGS': 'USD_Index', 'T10Y2Y': 'Yield_Curve_2s10s',
         'DFII10': 'Real_10Y_Yield','SOFR': 'SOFR','TGCRRATE': 'TGCR', 'DEXUSEU': 'EURUSD',
-        'EXGEUS': 'USDDEM','DGS3MO': 'Fed_3M', 'DGS2': 'Fed_2Y', 'DGS10': 'Fed_10Y'
+        'EXGEUS': 'USDDEM','DGS3MO': 'Fed_3M', 'DGS2': 'Fed_2Y', 'DGS10': 'Fed_10Y', 'GDP': 'GDP'
     }
     for fid, name in fred_ids.items():
         try:
@@ -144,6 +144,39 @@ def get_master_data():
             st.sidebar.warning("Could not find data rows in FINRA file.")
     except Exception as e:
         st.sidebar.error(f"FINRA Scraper Error: {e}")
+    # --- VALUATION DATA LOADING (Shiller CSV) ---
+    def load_shiller_data(file_path):
+        try:
+            # Skip top 7 lines of disclaimer/headers
+            df_sh = pd.read_csv(file_path, skiprows=7)
+        
+            # Parse Shiller's unique date format: 2003.01 (Jan) -> 2003.1 (Oct)
+            def parse_date(d):
+                try:
+                    s = f"{float(d):.2f}"
+                    year, month = s.split('.')
+                    return pd.Timestamp(year=int(year), month=int(month), day=1)
+                except: return pd.NaT
+
+            df_sh['Date'] = df_sh['Date'].apply(parse_date)
+            df_sh = df_sh.dropna(subset=['Date']).set_index('Date')
+        
+            # Convert columns to numeric (P is often object type in CSVs)
+            df_sh['P'] = pd.to_numeric(df_sh['P'], errors='coerce')
+            df_sh['E'] = pd.to_numeric(df_sh['E'], errors='coerce')
+        
+            # Calculate Earnings Yield
+            df_sh['EY'] = (df_sh['E'] / df_sh['P']) * 100
+            return df_sh[['CAPE', 'EY']]
+        except Exception as e:
+            st.error(f"Error loading Shiller CSV: {e}")
+            return pd.DataFrame()
+
+    # Load and merge Shiller data
+    shiller_df = load_shiller_data('ie_data (1).xls - Data.csv')
+    df = df.join(shiller_df, how='left')
+    # Forward fill monthly valuation data to match daily/weekly master data
+    df[['CAPE', 'EY']] = df[['CAPE', 'EY']].ffill()
     # --- 4. SYNTHETIC CURRENCY LOGIC ---
     # Convert DEM/USD to EUR/USD for pre-1999 data (Fixed rate: 1.95583)
     if 'USDDEM' in series_dict:
@@ -304,7 +337,15 @@ if not df.empty:
 
     # Calculate the 50-day SMA for the High Yield Spread
     df['HY_Spread_SMA50'] = df['HY_Spread'].rolling(window=50).mean()
+    # --- VALUATION CALCULATIONS ---
+    # 1. Buffett Indicators
+    # Since GDP is quarterly, ffill() spreads the value across the quarter
+    df['GDP_Filled'] = df['GDP'].ffill()
+    df['Buffett_v1'] = (df['W5000'] / df['GDP_Filled']) 
+    df['Buffett_v2'] = (df['W5000'] / (df['GDP_Filled'] + df['Net_Liq']))
 
+    # 2. Earnings Yield vs 10Y
+    df['EY_10Y_Spread'] = df['EY'] - df['Fed_10Y']
     # --- SMA Spread (Golden/Death Cross Oscillator) ---
     if 'SP500_SMA50' in df.columns and 'SP500_SMA200' in df.columns:
         df['SMA_Spread'] = df['SP500_SMA50'] - df['SP500_SMA200']
@@ -442,7 +483,8 @@ plot_order = [
     "SP500", "Allocation", "Leverage", "VIX", "Breadth", "CPI_3M", 
     "Net_Liq", "M2_Growth", "HY_Spread", "Rates_2Y_10Y", 
     "Yield_Curves", "USD_EUR", "USD_Index", 
-    "Funding_Stress", "SMA_Momentum"
+    "Funding_Stress", "SMA_Momentum",
+    "Val_Buffett", "Val_CAPE", "Val_EY"
 ]
 
 fig, axes = plt.subplots(nrows=len(plot_order), ncols=1, figsize=(12, 4 * len(plot_order)), sharex=True)
@@ -585,6 +627,35 @@ ax.plot(p_df.index, get_s('SMA_Spread'), color='black')
 ax.fill_between(p_df.index, get_s('SMA_Spread'), 0, where=(get_s('SMA_Spread') >= 0), color='green', alpha=0.3)
 ax.fill_between(p_df.index, get_s('SMA_Spread'), 0, where=(get_s('SMA_Spread') < 0), color='red', alpha=0.3)
 format_ax(ax, "SMA Momentum (50D - 200D)")
+
+# --- 16. Buffett Indicator Plot ---
+if "Val_Buffett" in ax_map:
+    ax = ax_map["Val_Buffett"]
+    ax.plot(p_df.index, p_df['Buffett_v1'], label='W5000 / GDP (Standard)', color='blue')
+    ax.plot(p_df.index, p_df['Buffett_v2'], label='W5000 / (GDP + Liq) (Fed Adjusted)', color='purple', linestyle='--')
+    ax.axhline(p_df['Buffett_v1'].mean(), color='blue', alpha=0.3, label='Avg v1')
+    format_ax(ax, "Buffett Indicator (Market Cap vs Output & Liquidity)")
+    ax.legend()
+
+# --- 17. Shiller CAPE Plot ---
+if "Val_CAPE" in ax_map:
+    ax = ax_map["Val_CAPE"]
+    ax.plot(p_df.index, p_df['CAPE'], color='darkred', lw=2)
+    ax.axhline(20, color='gray', linestyle=':', alpha=0.5)
+    ax.axhline(30, color='red', linestyle=':', alpha=0.5)
+    format_ax(ax, "Shiller CAPE Ratio")
+    ax.fill_between(p_df.index, p_df['CAPE'], 30, where=(p_df['CAPE'] > 30), color='red', alpha=0.1)
+
+# --- 18. Earnings Yield vs 10Y ---
+if "Val_EY" in ax_map:
+    ax = ax_map["Val_EY"]
+    ax.plot(p_df.index, p_df['EY'], label='S&P 500 Earnings Yield', color='green')
+    ax.plot(p_df.index, p_df['Fed_10Y'], label='10Y Treasury Yield', color='orange')
+    # Plot the Spread on a twin axis or as a filled area
+    ax.fill_between(p_df.index, p_df['EY'], p_df['Fed_10Y'], 
+                    where=(p_df['EY'] > p_df['Fed_10Y']), color='green', alpha=0.1, label='Equity Risk Premium')
+    format_ax(ax, "Earnings Yield vs 10Y Yield (Valuation Gap)")
+    ax.legend()
 
 #plt.tight_layout(pad=4.0)
 fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)
