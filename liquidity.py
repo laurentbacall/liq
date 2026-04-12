@@ -344,7 +344,25 @@ if not df.empty:
     death_cross = df['SP500_SMA50'] < df['SP500_SMA200']
     exit_trigger = df['Leverage_Exit_Signal'] & (~death_cross)
     #reentry_trigger = df['Divergence_Signal'] & (death_cross)
-    reentry_trigger = vix_high_peak & vix_below_sma
+    # --- SEQUENTIAL RE-ENTRY LOGIC (VIX -> BREADTH) ---
+
+    # 1. Define the 'Panic Window' (e.g., 126 trading days / ~6 months)
+    # We look back to see if a VIX > 40 event occurred recently
+    vix_panic_occurred = df['VIX'].rolling(window=126).max() > 40
+
+    # 2. Define the 'Calming' phase
+    vix_is_calming = df['VIX'] < df['VIX_SMA14']
+
+    # 3. Define the 'Breadth Confirmation'
+    # This requires the average stock to start leading (Spread > 0)
+    breadth_confirmed = df['Breadth_Spread'] > 0
+
+    # 4. Final Sequential Trigger:
+    # Must have had a panic AND currently be calming AND have breadth confirmation
+    df['Reentry_Signal'] = vix_panic_occurred & vix_is_calming & breadth_confirmed
+
+    # Apply to your existing allocation variable
+    reentry_trigger = df['Reentry_Signal']
     # --- DYNAMIC ALLOCATION LOGIC ---
     # --- 1. CONFIGURATION PARAMETERS ---
     # --- CONFIGURATION ---
