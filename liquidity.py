@@ -539,41 +539,42 @@ ax_twin.yaxis.set_major_formatter(ScalarFormatter())
 format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
-# Leverage Proxy
+# --- 14. Leverage Proxy ---
+if "Leverage" in ax_map:
+    ax = ax_map["Leverage"]
+    ax_twin = ax.twinx()
 
-ax = ax_map["Leverage"]
+    # 1. Plot the lines (Note the commas after ln1 and ln2)
+    # This unpacks the list returned by .plot() so ln1 is a Line2D object
+    ln1, = ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+    ln2, = ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Z-Score')
 
-ax_twin = ax.twinx()
+    # 2. Add the threshold line
+    ax_twin.axhline(2, color='red', ls='dashed', alpha=0.5)
 
-ax.plot(p_df.index, get_s('Margin_Market_Ratio'), color='purple', lw=1.5, label='Margin/W5000 Ratio')
+    # 3. Shade the excess (Z-Score > 2)
+    ax_twin.fill_between(
+        p_df.index, 
+        get_s('Margin_Ratio_Z'), 
+        2, 
+        where=(get_s('Margin_Ratio_Z') > 2),
+        color='red', 
+        alpha=0.3
+    )
 
-ax_twin.plot(p_df.index, get_s('Margin_Ratio_Z'), color='firebrick', lw=1, alpha=0.7, label='Z-Score')
+    # 4. Create a custom legend proxy for the shaded area
+    from matplotlib.patches import Patch
+    red_patch = Patch(color='red', alpha=0.3, label='Excess Leverage (>2σ)')
 
-ax_twin.axhline(2, color='red', ls='dashed', alpha=0.5)
+    # 5. Consolidate all handles and labels
+    # By using the variables defined above, we avoid the NameError
+    handles = [ln1, ln2, red_patch]
+    labels = [h.get_label() for h in handles]
 
-# 3. Shade the excess (where Z-Score > 2)
-# We use ax_twin because the Z-Score data is on that scale
-ax_twin.fill_between(
-    p_df.index, 
-    get_s('Margin_Ratio_Z'), 
-    2, 
-    where=(get_s('Margin_Ratio_Z') > 2),
-    color='red', 
-    alpha=0.3, 
-    label='Excess Leverage'
-)
+    # 6. Place legend in the middle right (outside the plot)
+    ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
 
-# 4. Consolidate legends from both axes and place in the middle-right
-lines = ln1 + ln2
-labels = [l.get_label() for l in lines]
-# Adding 'Excess Leverage' to the legend manually since fill_between needs it
-labels.append('Excess Leverage') 
-# Note: Matplotlib handles the fill_between label better if you pass it as a proxy, 
-# but for simplicity, we can just use ax.legend or ax_twin.legend with all handles.
-
-ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
-
-format_ax(ax, "Leverage Proxy (Margin Debt / Wilshire 5000)")
+    format_ax(ax, "Leverage Proxy (Margin Debt / Wilshire 5000)")
 
 # VIX
 ax = ax_map["VIX"]
