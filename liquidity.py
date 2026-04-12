@@ -325,7 +325,11 @@ if not df.empty:
     prev_max = monthly_z.shift(1).combine(monthly_z.shift(2), max)
     is_below_recent_peak = monthly_z < prev_max
     
-    lev_trigger_monthly = three_months_above_2 & is_below_recent_peak
+    # THE FIX: Shift the trigger by 1 month to account for data reporting lag
+    # This ensures a signal generated at the end of Month T is only 'seen' at the start of Month T+1
+    lev_trigger_monthly = (three_months_above_2 & is_below_recent_peak).shift(1)
+
+    # Re-align with the daily dataframe
     df['Leverage_Exit_Signal'] = lev_trigger_monthly.reindex(df.index, method='ffill').fillna(False)
     
     # Exit and Re-entry conditions
