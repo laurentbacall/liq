@@ -473,7 +473,7 @@ if 'SP500_SMA200' in p_df.columns:
     ax.plot(p_df.index, p_df['SP500_SMA200'], color='red', ls='dashed', lw=1.5, label='200D SMA')
 if 'SP500_SMA50' in p_df.columns:
     ax.plot(p_df.index, p_df['SP500_SMA50'], color='blue', ls='dotted', lw=1.2, label='50D SMA')
-ax.legend(loc='middle left')
+ax.legend(loc='centre left')
 format_ax(ax, "S&P 500, 50-d & 200-d SMA", use_log=True)
 
 # Allocation & Performance
