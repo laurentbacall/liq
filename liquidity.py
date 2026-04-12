@@ -606,22 +606,33 @@ ax = ax_map["M2_Growth"]
 ax.plot(p_df.index, get_s('M2_Real_Growth'), color='purple')
 format_ax(ax, "Real M2 YoY Growth")
 
-# HY Spread
-ax = ax_map["HY_Spread"]
-ax_twin = ax.twinx()
-ax.plot(p_df.index, get_s('HY_Spread'), color='orange', label='HY Spread')
-ax.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=0.5, label='50D SMA')
-ax.invert_yaxis()
-ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
-ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
-format_ax(ax, "HY Spread (Inverted) & Z-Score")
+# --- HY Spread (Inverted) & Z-Score ---
+if "HY_Spread" in ax_map:
+    ax = ax_map["HY_Spread"]
+    ax_twin = ax.twinx()
+    
+    # Use commas to unpack the line objects
+    ln1, = ax.plot(p_df.index, get_s('HY_Spread_SMA50'), color='navy', lw=1.5, label='HY Spread SMA50')
+    ax.invert_yaxis()
+    
+    ln2, = ax_twin.plot(p_df.index, get_s('HY_Z'), color='gray', alpha=0.5, label='Z-Score')
+    
+    # Consolidate handles and labels locally
+    hy_handles = [ln1, ln2]
+    hy_labels = [l.get_label() for l in hy_handles]
+    
+    ax.legend(hy_handles, hy_labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    format_ax(ax, "HY Spread (Inverted) & Z-Score")
 
-# 2Y and 10Y Rates
-ax = ax_map["Rates_2Y_10Y"]
-ax.plot(p_df.index, get_s('Fed_2Y'), color='royalblue', label='2Y Rate')
-ax.plot(p_df.index, get_s('Fed_10Y'), color='darkblue', label='10Y Rate')
-ax.legend(lines, labels, loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
-format_ax(ax, "2Y and 10Y Rates")
+# --- 2Y and 10Y Rates ---
+if "Rates" in ax_map:
+    ax = ax_map["Rates"]
+    ax.plot(p_df.index, get_s('Fed_2Y'), color='blue', label='2Y Yield')
+    ax.plot(p_df.index, get_s('Fed_10Y'), color='red', label='10Y Yield')
+    
+    # Matplotlib automatically finds labels for a single axis
+    ax.legend(loc='center left', bbox_to_anchor=(1.05, 0.5), fontsize=9, frameon=False)
+    format_ax(ax, "Treasury Yields (2Y vs 10Y)")
 
 # Yield Curves
 ax = ax_map["Yield_Curves"]
