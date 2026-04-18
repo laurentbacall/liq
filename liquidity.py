@@ -38,6 +38,33 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
+def get_macromicro_ey():
+    """
+    Scrapes the S&P 500 Earnings Yield (Series 1636) directly from MacroMicro.
+    """
+    url = "https://www.macromicro.me/charts/data/1636" # Direct data endpoint for EY
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Referer": "https://en.macromicro.me/series/1636/us-sp500-earnings-yield",
+        "Authorization": "Bearer YOUR_TOKEN_IF_YOU_HAVE_ONE" # Optional, usually works without for limited requests
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        data = response.json()
+        
+        # MacroMicro JSON structure: data['charts']['c:1636']['series'][0]['data']
+        # This structure can vary slightly; we target the specific series data
+        series_data = data['data']['c:1636']['series'][0]['data']
+        
+        df_ey = pd.DataFrame(series_data, columns=['date', 'EY'])
+        df_ey['date'] = pd.to_datetime(df_ey['date'])
+        df_ey.set_index('date', inplace=True)
+        return df_ey
+    except Exception as e:
+        st.error(f"MacroMicro Scrape Failed: {e}")
+        return pd.DataFrame()
+
 # --- 2. DATA ENGINE ---
 @st.cache_data(ttl=7200)
 def get_master_data():
@@ -144,32 +171,7 @@ def get_master_data():
             st.sidebar.warning("Could not find data rows in FINRA file.")
     except Exception as e:
         st.sidebar.error(f"FINRA Scraper Error: {e}")
-    def get_macromicro_ey():
-        """
-        Scrapes the S&P 500 Earnings Yield (Series 1636) directly from MacroMicro.
-        """
-        url = "https://www.macromicro.me/charts/data/1636" # Direct data endpoint for EY
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Referer": "https://en.macromicro.me/series/1636/us-sp500-earnings-yield",
-            "Authorization": "Bearer YOUR_TOKEN_IF_YOU_HAVE_ONE" # Optional, usually works without for limited requests
-        }
-        
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            data = response.json()
-            
-            # MacroMicro JSON structure: data['charts']['c:1636']['series'][0]['data']
-            # This structure can vary slightly; we target the specific series data
-            series_data = data['data']['c:1636']['series'][0]['data']
-            
-            df_ey = pd.DataFrame(series_data, columns=['date', 'EY'])
-            df_ey['date'] = pd.to_datetime(df_ey['date'])
-            df_ey.set_index('date', inplace=True)
-            return df_ey
-        except Exception as e:
-            st.error(f"MacroMicro Scrape Failed: {e}")
-            return pd.DataFrame()
+
     # --- 4. SYNTHETIC CURRENCY LOGIC ---
     # Convert DEM/USD to EUR/USD for pre-1999 data (Fixed rate: 1.95583)
     if 'USDDEM' in series_dict:
