@@ -1,8 +1,6 @@
-# Todo: get the EY version from https://en.macromicro.me/series/1636/us-sp500-earnings-yield
 # Todo: see to make it run locally (avec crosshair)
 # Todo: See to include BRK-B
 # Todo: regarder pour une version moins noisy du market breadth
-# Todo: challenge for curve fitting and sense with Zozo and genAIs
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -45,8 +43,8 @@ def get_master_data():
     start_date = "1995-01-01"
     series_dict = {}
     csv_file = "historical_data.csv" 
-    tickers = ["^GSPC", "^VIX", "^W5000", "RSP", "BRK-B"]
-    mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000", "RSP": "RSP", "BRK-B": "BRK"}
+    tickers = ["^GSPC", "^VIX", "^W5000", "RSP"]
+    mapping = {"^GSPC": "SP500", "^VIX": "VIX", "^W5000": "W5000", "RSP": "RSP"}
 
     # Initialize df_combined as empty so we have a fallback
     df_combined = pd.DataFrame()
@@ -466,43 +464,6 @@ if not df.empty:
         df['Strategy_Cum'] = (1 + df['Strategy_Returns']).cumprod()
         df['SPY_Cum'] = (1 + df['Market_Returns']).cumprod()
 
-# --- Portfolio Simulation: 50/50 SP500 & BRK-B ---
-if 'SP500' in df.columns and 'BRK' in df.columns:
-    # Drop rows where we don't have both prices
-    sim_df = df[['SP500', 'BRK']].dropna().copy()
-    
-    # Initialize simulation variables
-    portfolio_value = 100.0  # Start with $100
-    sp_weight, brk_weight = 0.5, 0.5
-    
-    # Calculate units held
-    sp_units = (portfolio_value * sp_weight) / sim_df['SP500'].iloc[0]
-    brk_units = (portfolio_value * brk_weight) / sim_df['BRK'].iloc[0]
-    
-    values = []
-    
-    for i in range(len(sim_df)):
-        current_date = sim_df.index[i]
-        price_sp = sim_df['SP500'].iloc[i]
-        price_brk = sim_df['BRK'].iloc[i]
-        
-        # Calculate daily value
-        current_val = (sp_units * price_sp) + (brk_units * price_brk)
-        values.append(current_val)
-        
-        # Rebalance Logic: End of March (Month 3) and October (Month 10)
-        # Check if today is the last trading day of the month or if month changed
-        if i < len(sim_df) - 1:
-            next_date = sim_df.index[i+1]
-            if (current_date.month in [3, 10]) and (next_date.month != current_date.month):
-                # Rebalance to 50/50
-                sp_units = (current_val * 0.5) / price_sp
-                brk_units = (current_val * 0.5) / price_brk
-                
-    sim_df['Portfolio_50_50'] = values
-    # Join back to main df
-    df = df.join(sim_df['Portfolio_50_50'])
-
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
 all_dates = df.index
@@ -524,7 +485,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 plot_order = [
-    "SP500", "Allocation", "Portfolio_Sim", "Leverage", "VIX", "Breadth", "CPI_3M", 
+    "SP500", "Allocation", "Leverage", "VIX", "Breadth", "CPI_3M", 
     "Net_Liq", "M2_Growth", "HY_Spread", "Rates_2Y_10Y", 
     "Yield_Curves", "USD_EUR", "USD_Index", 
     "Funding_Stress", "SMA_Momentum",
@@ -577,25 +538,6 @@ ax_twin.set_yscale('log')
 ax_twin.yaxis.set_major_formatter(ScalarFormatter())
 format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
-
-
-# --- Portfolio Simulation Plot ---
-if "Portfolio_Sim" in ax_map:
-    ax = ax_map["Portfolio_Sim"]
-    
-    # Calculate relative performance starting at 100
-    start_val_sp = p_df['SP500'].dropna().iloc[0]
-    sp_norm = (p_df['SP500'] / start_val_sp) * 100
-    
-    start_val_port = p_df['Portfolio_50_50'].dropna().iloc[0]
-    port_norm = (p_df['Portfolio_50_50'] / start_val_port) * 100
-    
-    ax.plot(p_df.index, sp_norm, color='black', alpha=0.5, label='S&P 500 (Buy & Hold)')
-    ax.plot(p_df.index, port_norm, color='gold', lw=2, label='50/50 SP500 & BRK-B (Rebalanced)')
-    
-    # Add a legend inside
-    ax.legend(loc='upper left', fontsize=9, frameon=True)
-    format_ax(ax, "Strategy Simulation (Base 100)")
 
 # --- 14. Leverage Proxy ---
 if "Leverage" in ax_map:
