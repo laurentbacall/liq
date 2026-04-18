@@ -18,6 +18,10 @@ from matplotlib.ticker import ScalarFormatter
 import plotly.tools as tls
 import plotly.graph_objects as go
 import requests
+import cloudscraper
+import re
+import base64
+import json
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Macro Regime Monitor", layout="wide")
@@ -38,31 +42,32 @@ if not api_key:
 
 fred = Fred(api_key=api_key)
 
-def get_macromicro_ey():
-    """
-    Scrapes the S&P 500 Earnings Yield (Series 1636) directly from MacroMicro.
-    """
-    url = "https://www.macromicro.me/charts/data/1636" # Direct data endpoint for EY
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Referer": "https://en.macromicro.me/series/1636/us-sp500-earnings-yield",
-        "Authorization": "Bearer YOUR_TOKEN_IF_YOU_HAVE_ONE" # Optional, usually works without for limited requests
-    }
+def get_macromicro_ey_robust():
+    url = "https://en.macromicro.me/series/1636/us-sp500-earnings-yield"
+    
+    scraper = cloudscraper.create_scraper(
+        browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
+    )
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        data = response.json()
-        
-        # MacroMicro JSON structure: data['charts']['c:1636']['series'][0]['data']
-        # This structure can vary slightly; we target the specific series data
-        series_data = data['data']['c:1636']['series'][0]['data']
-        
-        df_ey = pd.DataFrame(series_data, columns=['date', 'EY'])
-        df_ey['date'] = pd.to_datetime(df_ey['date'])
-        df_ey.set_index('date', inplace=True)
-        return df_ey
+        response = scraper.get(url)
+        if response.status_code != 200:
+            return pd.DataFrame()
+
+        # Extract the Base64 encoded data string
+        match = re.search(r'atob\("([^"]+)"\)', response.text)
+        if match:
+            b64_string = match.group(1)
+            json_data = json.loads(base64.b64decode(b64_string).decode('utf-8'))
+            
+            # The JSON usually has [timestamp, value]
+            df = pd.DataFrame(json_data, columns=['date', 'EY'])
+            df['date'] = pd.to_datetime(df['date'], unit='ms')
+            df.set_index('date', inplace=True)
+            return df
+        return pd.DataFrame()
+            
     except Exception as e:
-        st.error(f"MacroMicro Scrape Failed: {e}")
         return pd.DataFrame()
 
 # --- 2. DATA ENGINE ---
@@ -881,30 +886,36 @@ if "Val_EY" in ax_map:
                     where=(p_df['EY'] > p_df['Fed_10Y']), color='green', alpha=0.1, label='Equity Risk Premium')
     format_ax(ax, "Earnings Yield vs 10Y Yield (Valuation Gap)")
     ax.legend()
-# --- 18. S&P 500 EY vs 10Y Yield (MacroMicro Style) ---
+# --- 18. S&P 500 EY vs 10Y Yield (Robust Version) ---
 if "Val_EY_Macro" in ax_map:
     ax = ax_map["Val_EY_Macro"]
     
-    # 1. Fetch/Prepare Data
-    ey_df = get_macromicro_ey()
+    # Use the robust cloudscraper logic
+    ey_df = get_macromicro_ey_robust()
     
-    # Check if we actually got data before proceeding
     if not ey_df.empty:
-        # Align with your main dataframe index
+        # Align with your main dataframe (p_df)
+        # Note: Scraped data is daily/weekly, we reindex to match your chart slider
         p_df['Macro_EY'] = ey_df['EY'].reindex(p_df.index, method='ffill')
     
-        # 2. Plot the Yields
-        ax.plot(p_df.index, p_df['Macro_EY'], color='royalblue', lw=2, label='S&P 500 EY')
-        ax.plot(p_df.index, p_df['Fed_10Y'], color='darkorange', lw=2, label='10Y Yield')
+        # Plot the lines
+        ax.plot(p_df.index, p_df['Macro_EY'], color='royalblue', lw=2, label='S&P 500 Earnings Yield')
+        ax.plot(p_df.index, p_df['Fed_10Y'], color='darkorange', lw=2, label='US 10Y Treasury Yield')
         
-        # ... (Your fill_between logic here) ...
+        # Shade the Equity Risk Premium (The "Value Gap")
+        ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
+                        where=(p_df['Macro_EY'] > p_df['Fed_10Y']), 
+                        color='green', alpha=0.15, label='ERP Surplus (Cheap)')
+        
+        ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
+                        where=(p_df['Macro_EY'] <= p_df['Fed_10Y']), 
+                        color='red', alpha=0.15, label='ERP Deficit (Expensive)')
 
-        format_ax(ax, "Earnings Yield vs. 10Y (MacroMicro Valuation)")
+        format_ax(ax, "Earnings Yield vs. 10Y (MacroMicro Robust)")
         ax.legend(loc='upper left', fontsize=9, frameon=True)
-    
-    # THIS IS LINE 916 (Ensure it is aligned with 'if not ey_df.empty:')
+        ax.set_ylabel("Yield (%)")
     else:
-        ax.text(0.5, 0.5, "MacroMicro Data Unavailable", 
+        ax.text(0.5, 0.5, "MacroMicro Logic Blocked: Check cloudscraper", 
                 transform=ax.transAxes, ha='center', va='center', color='red')
 #plt.tight_layout(pad=4.0)
 fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)

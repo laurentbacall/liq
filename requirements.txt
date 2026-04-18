@@ -6,3 +6,4 @@ yfinance
 openpyxl
 plotly
 xlrd
+cloudscraper
