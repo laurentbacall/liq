@@ -593,35 +593,39 @@ format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
 
-# --- Allocation & Performance (50/50 Tactical) ---
+# --- Allocation & Performance (50/50 Tactical with Floor) ---
 if "Allocation_5050" in ax_map:
     ax = ax_map["Allocation_5050"]
     ax_twin = ax.twinx()
     
-    # Get series
+    # 1. Prepare Series
     strat_series = get_s('Tactical_5050_Cum')
     spy_series = get_s('SPY_Cum')
     
-    # Normalize to start of visible period
-    strat_start, spy_start = strat_series.iloc[0], spy_series.iloc[0]
+    # 2. Normalize to the start of the visible period (Base $1.00)
+    strat_start = strat_series.iloc[0] if strat_series.iloc[0] != 0 else 1
+    spy_start = spy_series.iloc[0] if spy_series.iloc[0] != 0 else 1
+    
     strategy_final = strat_series.iloc[-1] / strat_start
     spy_final = spy_series.iloc[-1] / spy_start
 
-    # Fill Allocation shading
+    # 3. Plot Allocation Shading (The Floor will be visible at 10%)
     ax.fill_between(p_df.index, get_s('Allocation_Pct'), 0, color='blue', alpha=0.05, label='Allocation %')
+    ax.set_ylim(0, 105) # Keeps the 10% floor visually consistent
     
-    # Plot performance lines on log scale
-    ax_twin.plot(p_df.index, strat_series / strat_start, color='navy', lw=1, 
+    # 4. Plot Performance Lines
+    ax_twin.plot(p_df.index, strat_series / strat_start, color='navy', lw=1.2, 
                  label=f'Tactical (50/50): ${strategy_final:.2f}')
     ax_twin.plot(p_df.index, spy_series / spy_start, color='gray', lw=1, alpha=0.7, 
                  label=f'S&P 500: ${spy_final:.2f}')
     
+    # 5. Log Scale and Formatting
     ax_twin.set_yscale('log')
     ax_twin.yaxis.set_major_formatter(ScalarFormatter())
     
-    format_ax(ax, "Tactical (50% SPY / 50% BRK) vs. S&P 500")
+    format_ax(ax, "Tactical (50% SPY / 50% BRK) vs. S&P 500 Performance")
     
-    # Legends inside the graph
+    # 6. Legends inside the graph
     ax.legend(loc='upper left', fontsize=9, frameon=True)
     ax_twin.legend(loc='lower left', fontsize=9, frameon=True)
 
