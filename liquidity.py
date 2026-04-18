@@ -236,7 +236,7 @@ if not df.empty:
     exit_trigger = (df['SP500'] < df['SP500_SMA200']) | (df['VIX'] > 30)
     reentry_trigger = (df['SP500'] > df['SP500_SMA200']) & (df['VIX'] < 25)
     allocations, curr_alloc = [], 100.0
-    last_days = df.resample('M').last().index
+    last_days = df.resample('ME').last().index
     for i in range(len(df)):
         target = 10.0 if exit_trigger.iloc[i] else (100.0 if reentry_trigger.iloc[i] else curr_alloc)
         if df.index[i] in last_days:
