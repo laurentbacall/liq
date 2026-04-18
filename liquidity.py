@@ -400,16 +400,15 @@ if not df.empty:
     breadth_confirmed = df['Breadth_Spread'] > 0
 
     # --- Improved Breadth Calculation ---
+    # --- Rapid Breadth Calculation (5D vs 20D) ---
     df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
 
-    # 1. Smooth the ratio first to remove noise
-    df['Ratio_Smooth'] = df['RSP_SP500_Ratio'].rolling(window=5).mean()
+    # Fast and Slow SMAs
+    df['Ratio_5D'] = df['RSP_SP500_Ratio'].rolling(window=5).mean()
+    df['Ratio_20D'] = df['RSP_SP500_Ratio'].rolling(window=20).mean()
 
-    # 2. Calculate momentum against a longer lookback (e.g., 50 days)
-    df['Breadth_Trend'] = df['Ratio_Smooth'] - df['Ratio_Smooth'].rolling(window=50).mean()
-
-    # 3. Optional: Add a signal line (SMA of the trend) to further filter noise
-    df['Breadth_Signal'] = df['Breadth_Trend'].rolling(window=10).mean()
+    # The Spread: Positive = Short-term outperformance (Healthy)
+    df['Breadth_Rapid'] = (df['Ratio_5D'] - df['Ratio_20D']) / df['Ratio_20D'] * 100
 
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
@@ -791,20 +790,29 @@ ax.axhline(0, color='black', lw=1, alpha=0.5)
 format_ax(ax, "Market Breadth Momentum (RSP/SP500 vs 20D SMA)")
 ax.legend(loc='upper left', fontsize=9)
 
-# --- 13. Market Breadth Plot (Noise-Reduced) ---
-ax = ax_map["Breadth2"]
+# --- 13. Market Breadth Plot (Rapid 5/20) ---
+if "Breadth2" in ax_map:
+    ax = ax_map["Breadth2"]
+    
+    # Plot the Rapid Spread
+    ax.plot(p_df.index, p_df['Breadth_Rapid'], color='black', lw=1, label='5D vs 20D Momentum')
+    
+    # Fill based on direction
+    ax.fill_between(p_df.index, p_df['Breadth_Rapid'], 0, 
+                    where=(p_df['Breadth_Rapid'] >= 0), color='green', alpha=0.4)
+    ax.fill_between(p_df.index, p_df['Breadth_Rapid'], 0, 
+                    where=(p_df['Breadth_Rapid'] < 0), color='red', alpha=0.4)
+    
+    # Add the zero line
+    ax.axhline(0, color='black', lw=1.5, alpha=0.7)
+    
+    # Add horizontal 'Extreme' lines to spot potential exhaustion
+    # These values might need adjustment based on historical lookback
+    ax.axhline(0.5, color='green', ls='--', alpha=0.3)
+    ax.axhline(-0.5, color='red', ls='--', alpha=0.3)
 
-# Plot the Signal Line (Much smoother)
-ax.plot(p_df.index, p_df['Breadth_Signal'], color='black', lw=1.5, label='Breadth Signal (Smoothed)')
-
-# Fill based on the Signal Line
-ax.fill_between(p_df.index, p_df['Breadth_Signal'], 0, 
-                where=(p_df['Breadth_Signal'] >= 0), color='green', alpha=0.5)
-ax.fill_between(p_df.index, p_df['Breadth_Signal'], 0, 
-                where=(p_df['Breadth_Signal'] < 0), color='red', alpha=0.5)
-
-ax.axhline(0, color='black', lw=1, alpha=0.8)
-format_ax(ax, "Market Breadth Trend (10D/50D Smoothed RSP/SP500)")
+    format_ax(ax, "Rapid Market Breadth (RSP/SP500: 5D vs 20D SMA)")
+    ax.legend(loc='upper left', fontsize=9, frameon=True)
 
 # Funding Stress
 ax = ax_map["Funding_Stress"]
