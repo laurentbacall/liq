@@ -538,7 +538,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 plot_order = [
-    "SP500", "Allocation", "Portfolio_Sim", "Leverage", "VIX", "Breadth", "CPI_3M", 
+    "SP500", "Allocation", "Allocation_5050", "Leverage", "VIX", "Breadth", "CPI_3M", 
     "Net_Liq", "M2_Growth", "HY_Spread", "Rates_2Y_10Y", 
     "Yield_Curves", "USD_EUR", "USD_Index", 
     "Funding_Stress", "SMA_Momentum",
