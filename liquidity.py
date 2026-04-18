@@ -885,31 +885,32 @@ if "Val_EY" in ax_map:
 if "Val_EY_Macro" in ax_map:
     ax = ax_map["Val_EY_Macro"]
     
-    # 1. Fetch/Prepare Data
-    ey_df = get_macromicro_ey()
+    # 1. Fetch data from the scraper
+    ey_df = get_macromicro_ey() 
+    
     if not ey_df.empty:
-        # Align with your main dataframe index
+        # 2. CRITICAL: Align and create the column in p_df before plotting
         p_df['Macro_EY'] = ey_df['EY'].reindex(p_df.index, method='ffill')
     
-    # 2. Plot the Yields
-    ax.plot(p_df.index, p_df['Macro_EY'], color='royalblue', lw=2, label='S&P 500 Earnings Yield (MacroMicro)')
-    ax.plot(p_df.index, p_df['Fed_10Y'], color='darkorange', lw=2, label='US 10Y Treasury Yield')
-    
-    # 3. Shade the "Value Gap" (Equity Risk Premium)
-    # Green = Stocks are cheap (Yield > Bonds)
-    # Red = Stocks are expensive (Bonds > Yield)
-    ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
-                    where=(p_df['Macro_EY'] > p_df['Fed_10Y']), 
-                    color='green', alpha=0.15, label='ERP Surplus')
-    
-    ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
-                    where=(p_df['Macro_EY'] <= p_df['Fed_10Y']), 
-                    color='red', alpha=0.15, label='ERP Deficit')
+        # 3. Now it is safe to plot
+        ax.plot(p_df.index, p_df['Macro_EY'], color='royalblue', lw=2, label='S&P 500 Earnings Yield (MacroMicro)')
+        ax.plot(p_df.index, p_df['Fed_10Y'], color='darkorange', lw=2, label='US 10Y Treasury Yield')
+        
+        # 4. Shade the "Value Gap" (Equity Risk Premium)
+        ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
+                        where=(p_df['Macro_EY'] > p_df['Fed_10Y']), 
+                        color='green', alpha=0.15, label='ERP Surplus')
+        
+        ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
+                        where=(p_df['Macro_EY'] <= p_df['Fed_10Y']), 
+                        color='red', alpha=0.15, label='ERP Deficit')
 
-    # 4. Styling
-    format_ax(ax, "Earnings Yield vs. 10Y (MacroMicro Valuation)")
-    ax.legend(loc='upper left', fontsize=9, frameon=True)
-    ax.set_ylabel("Yield (%)")
+        # Formatting
+        format_ax(ax, "Earnings Yield vs. 10Y (MacroMicro Valuation)")
+        ax.legend(loc='upper left', fontsize=9, frameon=True)
+        ax.set_ylabel("Yield (%)")
+    else:
+        st.warning("MacroMicro EY data is currently unavailable.")
 #plt.tight_layout(pad=4.0)
 fig.subplots_adjust(hspace=0.6, wspace=0.3, top=0.95, bottom=0.05)
 
