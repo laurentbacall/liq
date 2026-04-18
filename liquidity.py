@@ -1,6 +1,5 @@
 # Todo: get the EY version from https://en.macromicro.me/series/1636/us-sp500-earnings-yield
 # Todo: see to make it run locally (avec crosshair)
-# Todo: See to include BRK-B
 # Todo: regarder pour une version moins noisy du market breadth
 # Todo: challenge for curve fitting and sense with Zozo and genAIs
 import streamlit as st
@@ -399,6 +398,19 @@ if not df.empty:
     df['Breadth_Spread'] = ((df['Breadth_Ratio'] / df['Ratio_SMA20']) - 1) * 100
     
     breadth_confirmed = df['Breadth_Spread'] > 0
+
+    # --- Improved Breadth Calculation ---
+    df['RSP_SP500_Ratio'] = df['RSP'] / df['SP500']
+
+    # 1. Smooth the ratio first to remove noise
+    df['Ratio_Smooth'] = df['RSP_SP500_Ratio'].rolling(window=5).mean()
+
+    # 2. Calculate momentum against a longer lookback (e.g., 50 days)
+    df['Breadth_Trend'] = df['Ratio_Smooth'] - df['Ratio_Smooth'].rolling(window=50).mean()
+
+    # 3. Optional: Add a signal line (SMA of the trend) to further filter noise
+    df['Breadth_Signal'] = df['Breadth_Trend'].rolling(window=10).mean()
+
     # Leverage Calculations for Exit
     monthly_z = df['Margin_Ratio_Z'].resample('ME').last()
     three_months_above_2 = (monthly_z > 2) & (monthly_z.shift(1) > 2) & (monthly_z.shift(2) > 2)
@@ -538,7 +550,7 @@ p_df = df.truncate(before=start_s, after=end_s)
 
 # --- 5. PLOTTING ---
 plot_order = [
-    "SP500", "Allocation", "Allocation_5050", "Leverage", "VIX", "Breadth", "CPI_3M", 
+    "SP500", "Allocation", "Allocation_5050", "Leverage", "VIX", "Breadth", "Breadth2", "CPI_3M", 
     "Net_Liq", "M2_Growth", "HY_Spread", "Rates_2Y_10Y", 
     "Yield_Curves", "USD_EUR", "USD_Index", 
     "Funding_Stress", "SMA_Momentum",
@@ -778,6 +790,21 @@ ax.fill_between(p_df.index, breadth_data, 0,
 ax.axhline(0, color='black', lw=1, alpha=0.5)
 format_ax(ax, "Market Breadth Momentum (RSP/SP500 vs 20D SMA)")
 ax.legend(loc='upper left', fontsize=9)
+
+# --- 13. Market Breadth Plot (Noise-Reduced) ---
+ax = ax_map["Breadth2"]
+
+# Plot the Signal Line (Much smoother)
+ax.plot(p_df.index, p_df['Breadth_Signal'], color='black', lw=1.5, label='Breadth Signal (Smoothed)')
+
+# Fill based on the Signal Line
+ax.fill_between(p_df.index, p_df['Breadth_Signal'], 0, 
+                where=(p_df['Breadth_Signal'] >= 0), color='green', alpha=0.5)
+ax.fill_between(p_df.index, p_df['Breadth_Signal'], 0, 
+                where=(p_df['Breadth_Signal'] < 0), color='red', alpha=0.5)
+
+ax.axhline(0, color='black', lw=1, alpha=0.8)
+format_ax(ax, "Market Breadth Trend (10D/50D Smoothed RSP/SP500)")
 
 # Funding Stress
 ax = ax_map["Funding_Stress"]
