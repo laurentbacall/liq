@@ -885,18 +885,19 @@ if "Val_EY" in ax_map:
 if "Val_EY_Macro" in ax_map:
     ax = ax_map["Val_EY_Macro"]
     
-    # 1. Fetch data from the scraper
-    ey_df = get_macromicro_ey() 
+    # 1. Fetch/Prepare Data
+    ey_df = get_macromicro_ey()
     
+    # Check if we actually got data before proceeding
     if not ey_df.empty:
-        # 2. CRITICAL: Align and create the column in p_df before plotting
+        # Align with your main dataframe index
         p_df['Macro_EY'] = ey_df['EY'].reindex(p_df.index, method='ffill')
     
-        # 3. Now it is safe to plot
+        # 2. Plot the Yields (ONLY if data exists)
         ax.plot(p_df.index, p_df['Macro_EY'], color='royalblue', lw=2, label='S&P 500 Earnings Yield (MacroMicro)')
         ax.plot(p_df.index, p_df['Fed_10Y'], color='darkorange', lw=2, label='US 10Y Treasury Yield')
         
-        # 4. Shade the "Value Gap" (Equity Risk Premium)
+        # 3. Shade the "Value Gap" (Equity Risk Premium)
         ax.fill_between(p_df.index, p_df['Macro_EY'], p_df['Fed_10Y'], 
                         where=(p_df['Macro_EY'] > p_df['Fed_10Y']), 
                         color='green', alpha=0.15, label='ERP Surplus')
@@ -905,10 +906,13 @@ if "Val_EY_Macro" in ax_map:
                         where=(p_df['Macro_EY'] <= p_df['Fed_10Y']), 
                         color='red', alpha=0.15, label='ERP Deficit')
 
-        # Formatting
         format_ax(ax, "Earnings Yield vs. 10Y (MacroMicro Valuation)")
         ax.legend(loc='upper left', fontsize=9, frameon=True)
-        ax.set_ylabel("Yield (%)")
+    else:
+        # If scraper fails, show a message on the axis so the app doesn't crash
+        ax.text(0.5, 0.5, "MacroMicro Data Unavailable (Blocked or Offline)", 
+                transform=ax.transAxes, ha='center', va='center', color='red')
+        format_ax(ax, "Earnings Yield vs. 10Y (MacroMicro Valuation - FAILED)")
     else:
         st.warning("MacroMicro EY data is currently unavailable.")
 #plt.tight_layout(pad=4.0)
