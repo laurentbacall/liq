@@ -466,42 +466,56 @@ if not df.empty:
         df['Strategy_Cum'] = (1 + df['Strategy_Returns']).cumprod()
         df['SPY_Cum'] = (1 + df['Market_Returns']).cumprod()
 
-# --- Portfolio Simulation: 50/50 SP500 & BRK-B ---
-if 'SP500' in df.columns and 'BRK' in df.columns:
-    # Drop rows where we don't have both prices
-    sim_df = df[['SP500', 'BRK']].dropna().copy()
+    # --- Tactical 50/50 SP500 & BRK-B Simulation ---
+    if 'SP500' in df.columns and 'BRK' in df.columns and 'Allocation_Pct' in df.columns:
+        # 1. Calculate Daily Returns
+        df['Ret_SP500'] = df['SP500'].pct_change().fillna(0)
+        df['Ret_BRK'] = df['BRK'].pct_change().fillna(0)
     
-    # Initialize simulation variables
-    portfolio_value = 100.0  # Start with $100
-    sp_weight, brk_weight = 0.5, 0.5
+        # 2. Simulation variables
+        active_val = 1.0        # Value of the 50/50 basket
+        strat_val = 1.0         # Value of the tactical strategy
+        w_sp, w_brk = 0.5, 0.5  # Initial Weights
     
-    # Calculate units held
-    sp_units = (portfolio_value * sp_weight) / sim_df['SP500'].iloc[0]
-    brk_units = (portfolio_value * brk_weight) / sim_df['BRK'].iloc[0]
+        strat_vals = []
     
-    values = []
-    
-    for i in range(len(sim_df)):
-        current_date = sim_df.index[i]
-        price_sp = sim_df['SP500'].iloc[i]
-        price_brk = sim_df['BRK'].iloc[i]
+        for i in range(len(df)):
+            # a. Update the 50/50 basket value based on daily returns
+            # We assume the 'basket' exists regardless of the tactical signal
+            # to track its own internal growth/rebalancing
+            ret_sp = df['Ret_SP500'].iloc[i]
+            ret_brk = df['Ret_BRK'].iloc[i]
         
-        # Calculate daily value
-        current_val = (sp_units * price_sp) + (brk_units * price_brk)
-        values.append(current_val)
+            # Basket daily return
+            day_ret_basket = (w_sp * ret_sp) + (w_brk * ret_brk)
+            active_val *= (1 + day_ret_basket)
         
-        # Rebalance Logic: End of March (Month 3) and October (Month 10)
-        # Check if today is the last trading day of the month or if month changed
-        if i < len(sim_df) - 1:
-            next_date = sim_df.index[i+1]
-            if (current_date.month in [3, 10]) and (next_date.month != current_date.month):
-                # Rebalance to 50/50
-                sp_units = (current_val * 0.5) / price_sp
-                brk_units = (current_val * 0.5) / price_brk
-                
-    sim_df['Portfolio_50_50'] = values
-    # Join back to main df
-    df = df.join(sim_df['Portfolio_50_50'])
+            # b. Update weights based on price drift
+            # (Needed to keep the ratio correct between rebalance dates)
+            sp_val = w_sp * (1 + ret_sp)
+            brk_val = w_brk * (1 + ret_brk)
+            total_val = sp_val + brk_val
+            w_sp, w_brk = sp_val / total_val, brk_val / total_val
+        
+            # c. Semi-Annual Rebalancing (End of March and October)
+            curr_date = df.index[i]
+            if i < len(df) - 1:
+                next_date = df.index[i+1]
+                if (curr_date.month in [3, 10]) and (next_date.month != curr_date.month):
+                    w_sp, w_brk = 0.5, 0.5 # Reset to 50/50
+        
+            # d. Tactical Logic (Continuous Allocation with 10% Floor)
+            # Your df['Allocation_Pct'] already contains the 10-100 values
+            allocation = df['Allocation_Pct'].iloc[i] / 100.0
+        
+            # Strategy Return = (Allocated % * Basket Return) + (Cash % * 0)
+            # Since you are never 'off', this scaling is continuous
+            day_ret_strat = day_ret_basket * allocation
+        
+            strat_val *= (1 + day_ret_strat)
+            strat_vals.append(strat_val)
+        
+        df['Tactical_5050_Cum'] = strat_vals
 
 # --- 4. PERIOD SLIDER ---
 df.index = pd.to_datetime(df.index)
@@ -579,23 +593,37 @@ format_ax(ax, "Tactical Strategy vs. S&P 500 Performance")
 ax.legend(loc='upper left', fontsize=9); ax_twin.legend(loc='lower left', fontsize=9)
 
 
-# --- Portfolio Simulation Plot ---
-if "Portfolio_Sim" in ax_map:
-    ax = ax_map["Portfolio_Sim"]
+# --- Allocation & Performance (50/50 Tactical) ---
+if "Allocation_5050" in ax_map:
+    ax = ax_map["Allocation_5050"]
+    ax_twin = ax.twinx()
     
-    # Calculate relative performance starting at 100
-    start_val_sp = p_df['SP500'].dropna().iloc[0]
-    sp_norm = (p_df['SP500'] / start_val_sp) * 100
+    # Get series
+    strat_series = get_s('Tactical_5050_Cum')
+    spy_series = get_s('SPY_Cum')
     
-    start_val_port = p_df['Portfolio_50_50'].dropna().iloc[0]
-    port_norm = (p_df['Portfolio_50_50'] / start_val_port) * 100
+    # Normalize to start of visible period
+    strat_start, spy_start = strat_series.iloc[0], spy_series.iloc[0]
+    strategy_final = strat_series.iloc[-1] / strat_start
+    spy_final = spy_series.iloc[-1] / spy_start
+
+    # Fill Allocation shading
+    ax.fill_between(p_df.index, get_s('Allocation_Pct'), 0, color='blue', alpha=0.05, label='Allocation %')
     
-    ax.plot(p_df.index, sp_norm, color='black', alpha=0.5, label='S&P 500 (Buy & Hold)')
-    ax.plot(p_df.index, port_norm, color='gold', lw=2, label='50/50 SP500 & BRK-B (Rebalanced)')
+    # Plot performance lines on log scale
+    ax_twin.plot(p_df.index, strat_series / strat_start, color='navy', lw=1, 
+                 label=f'Tactical (50/50): ${strategy_final:.2f}')
+    ax_twin.plot(p_df.index, spy_series / spy_start, color='gray', lw=1, alpha=0.7, 
+                 label=f'S&P 500: ${spy_final:.2f}')
     
-    # Add a legend inside
+    ax_twin.set_yscale('log')
+    ax_twin.yaxis.set_major_formatter(ScalarFormatter())
+    
+    format_ax(ax, "Tactical (50% SPY / 50% BRK) vs. S&P 500")
+    
+    # Legends inside the graph
     ax.legend(loc='upper left', fontsize=9, frameon=True)
-    format_ax(ax, "Strategy Simulation (Base 100)")
+    ax_twin.legend(loc='lower left', fontsize=9, frameon=True)
 
 # --- 14. Leverage Proxy ---
 if "Leverage" in ax_map:
